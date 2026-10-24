@@ -44,3 +44,35 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "13.0"
     scheme:
       gatherCoverageData: false
+  pgs2srt:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources/pgs2srt
+    dependencies:
+      - package: PGSCorePackage
+        product: PGSCore
+      - package: PGSCorePackage
+        product: VisionOCR
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.pgs2srt
+        PRODUCT_NAME: pgs2srt
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: YES
+        ENABLE_HARDENED_RUNTIME: NO
+        ONLY_ACTIVE_ARCH: NO
+        ARCHS: [arm64, x86_64]
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: "5.0"
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path"
+    scheme:
+      gatherCoverageData: false

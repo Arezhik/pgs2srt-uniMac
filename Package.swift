@@ -8,11 +8,15 @@ let package = Package(
     ],
     products: [
         .library(name: "PGSCore", targets: ["PGSCore"]),
-        .executable(name: "pgsdump", targets: ["pgsdump"])
+        .library(name: "VisionOCR", targets: ["VisionOCR"]),
+        .executable(name: "pgsdump", targets: ["pgsdump"]),
+        .executable(name: "pgs2srt", targets: ["pgs2srt"])
     ],
     targets: [
         .target(name: "PGSCore"),
+        .target(name: "VisionOCR", dependencies: ["PGSCore"]),
         .executableTarget(name: "pgsdump", dependencies: ["PGSCore"]),
-        .testTarget(name: "PGSCoreTests", dependencies: ["PGSCore"])
+        .executableTarget(name: "pgs2srt", dependencies: ["PGSCore", "VisionOCR"]),
+        .testTarget(name: "PGSCoreTests", dependencies: ["PGSCore", "VisionOCR"])
     ]
 )

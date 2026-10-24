@@ -22,6 +22,20 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: Build command-line tools
+        run: swift build
+
+      - name: pgs2srt on Linux explains it needs a Mac
+        run: |
+          set -euo pipefail
+          .build/debug/pgs2srt --help | grep -q "Apple Vision"
+          set +e
+          stderr=$(.build/debug/pgs2srt sample.sup 2>&1)
+          code=$?
+          set -e
+          test "$code" -eq 1
+          echo "$stderr" | grep -q "only runs on macOS"
+
   macos:
     name: macOS universal app
     runs-on: macos-latest
@@ -31,6 +45,9 @@ jobs:
 
       - name: Xcode version
         run: xcodebuild -version
+
+      - name: Test
+        run: swift test
 
       - name: Resolve local package
         run: |
@@ -71,6 +88,32 @@ jobs:
           echo "$ARCHS" | grep -qw x86_64
           ditto -c -k --keepParent "$APP" "$GITHUB_WORKSPACE/PGS2SRT-universal.zip"
           test -s "$GITHUB_WORKSPACE/PGS2SRT-universal.zip"
+
+      - name: Build universal command-line tool
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project PGS2SRT.xcodeproj \
+            -scheme pgs2srt \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/build-cli" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          BIN="$GITHUB_WORKSPACE/build-cli/Build/Products/Release/pgs2srt"
+          if [ ! -f "$BIN" ]; then
+            BIN="$(find "$GITHUB_WORKSPACE/build-cli" -type f -name 'pgs2srt' -perm -111 | head -1)"
+          fi
+          test -f "$BIN"
+          lipo -info "$BIN"
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "pgs2srt architectures: $ARCHS"
+          echo "$ARCHS" | grep -qw arm64
+          echo "$ARCHS" | grep -qw x86_64
 
       - name: Upload app
         uses: actions/upload-artifact@v7

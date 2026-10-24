@@ -2,11 +2,53 @@
 
 PGS2SRT turns Blu-ray picture subtitles into text subtitles. A `.sup` file is a series of pictures (PGS). An `.srt` file is the words, with times, that a video player can show.
 
-This is the first slice of the app. The decoder, the SRT writer, the tests, and a placeholder Mac window are here. Drag-and-drop, text recognition, and MKV files come in later updates.
+The decoder, the SRT writer, and Apple Vision text recognition are in place. On a Mac you can already turn a `.sup` file into an `.srt` file from Terminal or from Xcode. The window is still a placeholder: drag-and-drop and MKV files come later.
 
 The app is for Mac, and it is built as a universal binary so it runs on both Apple silicon and Intel. The decoder itself is plain Swift, with no Apple-only code, so a Windows version can share it later.
 
 Minimum system: macOS 13 Ventura. Open the project in Xcode 27.
+
+## Convert a .sup file to .srt on a Mac
+
+Text recognition uses Apple’s Vision framework. It only runs on a Mac. You do not need Tesseract, pgsrip, or Python.
+
+The command reads the pictures in the `.sup` file, recognizes the words, and writes an `.srt` file next to it. A line it cannot read is kept in the `.srt` file as `[OCR failed: …]` and is also printed in the log, so a missed subtitle does not vanish.
+
+### From Terminal
+
+1. Install Xcode 27 if it is not already installed.
+2. Open Terminal.
+3. Go into this project’s folder. For example: `cd ~/Desktop/pgs2srt-uniMac`
+4. Run:
+
+```bash
+xcrun swift run pgs2srt "/path/to/Movie.sup"
+```
+
+Use the real path to your `.sup` file, including the quote marks if the path has spaces. The first run compiles the tool, which takes a minute. When it finishes, `Movie.srt` is next to `Movie.sup`.
+
+To choose the output file, the language, or how many pictures to read at once:
+
+```bash
+xcrun swift run pgs2srt "/path/to/Movie.sup" "/path/to/Movie.srt" --lang en-US --jobs 4
+```
+
+`--lang` is a language tag such as `en-US` or `fr-FR`. Repeat it to add another language. English is the default. `--jobs` is how many subtitles to recognize at the same time (default 4).
+
+`xcrun swift run pgs2srt --help` prints the same instructions.
+
+### From Xcode
+
+1. Open **`PGS2SRT.xcodeproj`** (see the next section if Xcode asks you to trust the project).
+2. At the top of the window, open the scheme menu and choose **pgs2srt** instead of PGS2SRT.
+3. Choose **Product → Scheme → Edit Scheme…**.
+4. Select **Run** on the left, then the **Arguments** tab.
+5. Under **Arguments Passed On Launch**, click **+** and paste the full path to the `.sup` file. Add a second argument only if you want the `.srt` written somewhere else.
+6. Press Run (the triangle) or Command-R.
+
+Xcode’s debug console shows progress as `12/340`, then a short summary: where the `.srt` was written, how many cues there were, and which ones could not be read. The working folder is not the folder that holds the `.sup`, so the path you pass has to be a full path.
+
+The **PGS2SRT** scheme is still the placeholder window. It does not convert a file. Use the **pgs2srt** scheme for that.
 
 ## Open it in Xcode and press Run
 
@@ -19,7 +61,7 @@ You do not need Python, Homebrew, or any extra tools.
 5. At the top of the window, the scheme should say **PGS2SRT** and the destination should be **My Mac**.
 6. Press the Run button (the triangle) or Command-R.
 
-A window named PGS2SRT opens. It says “Coming soon” and shows decoder version 0.1.0. That means the app linked the decoder and launched. Dropping a subtitle file does nothing yet.
+A window named PGS2SRT opens. It says “Coming soon” and shows decoder version 0.1.0. That means the app linked the decoder and launched. Dropping a subtitle file does nothing yet. To convert a file from Xcode, switch the scheme to **pgs2srt**, as described above.
 
 The project is set to **Sign to Run Locally**, so Xcode should not ask for an Apple Developer team. If it does: click the blue PGS2SRT project in the sidebar, select the PGS2SRT target, open Signing & Capabilities, and set the signing certificate to **Sign to Run Locally**.
 
@@ -58,8 +100,10 @@ The downloaded app is the same placeholder window. It is there so you can confir
 - Turn each palette color from limited-range YCbCr into RGBA. Frames taller than 576 pixels use BT.709. Shorter frames use BT.601. A caller can force either one.
 - Compose each display set into an image and a time range. Times are the 90 kHz timestamps stored in the file. A subtitle stays up until the next display set that clears the screen. A different picture, or a new epoch, closes it early so the first picture is not thrown away. Palette fades keep one cue and the most solid frame.
 - Write an `.srt` file: cue numbers, `HH:MM:SS,mmm` times, and CRLF line endings (LF is available too).
-- Leave a slot for text recognition. Nothing in this library recognizes text. The next update will plug Apple Vision into `SubtitleRecognizing`.
-- `pgsdump`, a small command-line tool that writes each decoded picture as a PAM image so a person can look at it.
+- Recognize the words with Apple Vision (`VNRecognizeTextRequest`, accurate mode, language correction, English by default). The pictures are prepared first: light letters are drawn on black and dark letters on white, then padded and enlarged when the line is tiny. Lines are ordered top to bottom. A line that leans to the right is wrapped in `<i>` italics. Common OCR junk is cleaned up (a lone `l` that should be `I`, a bar read as a letter, extra spaces, stray marks).
+- Keep a cue when recognition fails. The `.srt` line says `[OCR failed: …]` instead of skipping it. Several pictures are read at once, with progress, and the work can be cancelled.
+- `pgs2srt`, the Mac command that runs that whole path from a `.sup` file to an `.srt` file.
+- `pgsdump`, a small command-line tool that writes each decoded picture as a PAM image so a person can look at it. It does not recognize text, and it runs on Linux too.
 
 A broken file stops with a message that says what was wrong and where, instead of crashing.
 
@@ -72,7 +116,13 @@ swift test
 swift run pgsdump file.sup /tmp/pgs-out
 ```
 
-`swift test` does not need a Mac. `pgsdump` writes `0001.pam`, `0002.pam`, and so on, plus `cues.txt` with the times. On a Mac, Preview opens PAM files. `ffplay` and ImageMagick open them too.
+On a Mac, this also recognizes text:
+
+```bash
+swift run pgs2srt file.sup
+```
+
+`swift test` does not need a Mac for the decoder, the image-preparation math, the text cleanup, or the SRT assembly. The Vision checks are compiled only on macOS and run in the Mac CI job, using small pictures drawn in the test rather than a ripped disc. `pgsdump` writes `0001.pam`, `0002.pam`, and so on, plus `cues.txt` with the times. On a Mac, Preview opens PAM files. `ffplay` and ImageMagick open them too. `pgs2srt` on Linux builds, then stops with a message that text recognition needs a Mac.
 
 ### Adding a real .sup file later
 
@@ -87,12 +137,12 @@ If the folder contains any `.sup` file, the fixture test decodes it and fails if
 
 ## Roadmap
 
-1. **This slice.** Repository, Linux tests, Mac CI, the PGS decoder, the SRT writer, the OCR hook, and a placeholder window.
-2. **Rest of the first version.** Apple Vision text recognition, a window you can drop `.sup` files on, a queue with progress and errors, MKV files by calling `mkvextract` when it is installed, and a notification when a batch finishes.
+1. **Done.** Repository, Linux tests, Mac CI, the PGS decoder, the SRT writer, and a placeholder window.
+2. **This slice.** Apple Vision text recognition, image preparation, cleanup, a cancellable batch pipeline, and the `pgs2srt` command. The window you can drop files on, the queue, MKV files by calling `mkvextract` when it is installed, and a notification when a batch finishes are still to come.
 3. **Next.** Preview and edit the lines before saving, and choose which subtitle track to take from an MKV.
 4. **Later.** Read MKV files in Swift, without mkvextract. Then sign and notarize the app.
 5. **After that.** Windows. The decoder stays free of Apple-only imports so that can share it.
 
 ## Not in this version
 
-No drag-and-drop, no Vision text recognition, no notifications, and no MKV support.
+No drag-and-drop window, no notifications, and no MKV support. Text recognition is the `pgs2srt` command, not the window yet.
