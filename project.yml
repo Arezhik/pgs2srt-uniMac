@@ -1,0 +1,46 @@
+name: PGS2SRT
+options:
+  bundleIdPrefix: com.pgs2srt
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  SWIFT_VERSION: "5.0"
+  SDKROOT: macosx
+packages:
+  PGSCorePackage:
+    path: .
+targets:
+  PGS2SRT:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: PGSCorePackage
+        product: PGSCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.PGS2SRT
+        PRODUCT_NAME: PGS2SRT
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: YES
+        ENABLE_HARDENED_RUNTIME: NO
+        ONLY_ACTIVE_ARCH: NO
+        ARCHS: [arm64, x86_64]
+        INFOPLIST_KEY_CFBundleDisplayName: PGS2SRT
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+        SWIFT_EMIT_LOC_STRINGS: YES
+        ENABLE_PREVIEWS: YES
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+    scheme:
+      gatherCoverageData: false
