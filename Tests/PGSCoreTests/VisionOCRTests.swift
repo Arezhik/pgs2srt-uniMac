@@ -77,7 +77,7 @@ final class VisionOCRTests: XCTestCase {
 }
 
 /// Draws white Helvetica on a transparent bitmap with Core Text, which does not
-/// need a window. The pixels are rotated upright after drawing. See the copy loop.
+/// need a window. Rows are copied bottom-up so the first row is the top.
 private func renderedSubtitle(_ string: String) throws -> SubtitleImage {
     let font = CTFontCreateWithName("Helvetica" as CFString, 72, nil)
     let color = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
@@ -133,20 +133,15 @@ private func renderedSubtitle(_ string: String) throws -> SubtitleImage {
           CFDataGetLength(data) >= rowBytes * pixelHeight else {
         throw FixtureError("The bitmap for \(string) had an unexpected size.")
     }
-    // The flipped bitmap context came out rotated 180 degrees on the macOS
-    // runner: Vision read "Hello" as "olleH", and the second line first.
-    // Rotate it back so row 0 is the top and letters run left to right.
+    // The bitmap is bottom-up. On the macOS runner, copying it unchanged put the
+    // second line first, and reversing left-to-right as well made Vision read
+    // "Hello" as "olleH". Flip the rows only, so row 0 is the top.
     var rgba = [UInt8](repeating: 0, count: pixelWidth * pixelHeight * 4)
     for row in 0..<pixelHeight {
         let source = pointer.advanced(by: (pixelHeight - 1 - row) * rowBytes)
         let destination = row * pixelWidth * 4
-        for column in 0..<pixelWidth {
-            let from = (pixelWidth - 1 - column) * 4
-            let to = destination + column * 4
-            rgba[to] = source[from]
-            rgba[to + 1] = source[from + 1]
-            rgba[to + 2] = source[from + 2]
-            rgba[to + 3] = source[from + 3]
+        for column in 0..<(pixelWidth * 4) {
+            rgba[destination + column] = source[column]
         }
     }
     unpremultiply(&rgba)
