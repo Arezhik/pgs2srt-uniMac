@@ -9,7 +9,7 @@ struct ContentView: View {
                 .fontWeight(.semibold)
             Text("Coming soon")
                 .font(.title2)
-            Text("This window is a placeholder. The Blu-ray subtitle decoder is already linked in (version \(PGSCoreInfo.version)). Drag-and-drop conversion will be added in the next update.")
+            Text("This window is a placeholder. The Blu-ray subtitle decoder is linked in (version \(PGSCoreInfo.version)). On a Mac, the pgs2srt command can already turn a .sup file into an .srt file. Drag-and-drop conversion comes next.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)

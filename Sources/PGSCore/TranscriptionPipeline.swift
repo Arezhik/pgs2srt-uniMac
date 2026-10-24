@@ -1,0 +1,249 @@
+import Foundation
+
+/// How far a batch conversion has got. `completed` counts every finished cue,
+/// including ones that produced no text. Calls arrive one at a time, in the
+/// order cues finish, which is not always cue order when several run at once.
+public struct TranscriptionProgress: Equatable, Sendable {
+    public var completed: Int
+    public var total: Int
+    public var cueIndex: Int
+
+    public init(completed: Int, total: Int, cueIndex: Int) {
+        self.completed = completed
+        self.total = total
+        self.cueIndex = cueIndex
+    }
+}
+
+/// A cue whose picture produced no usable text, or whose recognizer failed.
+/// The cue is still written into the SRT file, with `placeholder` as its text,
+/// so a missed line is visible instead of disappearing.
+public struct CueRecognitionFailure: Equatable, Sendable, CustomStringConvertible {
+    /// Zero-based index in the decoded cue list.
+    public var cueIndex: Int
+    public var startPTS: UInt32
+    public var endPTS: UInt32
+    public var message: String
+
+    public init(cueIndex: Int, startPTS: UInt32, endPTS: UInt32, message: String) {
+        self.cueIndex = cueIndex
+        self.startPTS = startPTS
+        self.endPTS = endPTS
+        self.message = message
+    }
+
+    public var description: String {
+        "Cue \(cueIndex + 1) at \(SRTWriter.timestamp(pts: startPTS)): \(message)"
+    }
+
+    public var placeholder: String {
+        Self.placeholder(for: message)
+    }
+
+    public static func placeholder(for message: String) -> String {
+        "[OCR failed: \(message)]"
+    }
+}
+
+/// The SRT cues, the same text as a file, and any pictures that could not be read.
+public struct TranscriptionResult: Equatable, Sendable {
+    public var cues: [SRTCue]
+    public var failures: [CueRecognitionFailure]
+    public var srt: String
+
+    public init(cues: [SRTCue], failures: [CueRecognitionFailure], srt: String) {
+        self.cues = cues
+        self.failures = failures
+        self.srt = srt
+    }
+}
+
+/// Decoded subtitle pictures go in, SRT cues come out.
+///
+/// Several cues run at once, up to `maxConcurrent`. Progress is reported as
+/// each one finishes. Cancelling the task stops the batch and throws
+/// `CancellationError` instead of returning a partial file. A picture that
+/// comes back empty, or a recognizer error on one cue, does not drop that cue
+/// and does not stop the others.
+public struct TranscriptionPipeline: Sendable {
+    public var languages: [String]
+    public var maxConcurrent: Int
+    public var cleaner: OCRTextCleaner
+    public var lineEnding: SRTLineEnding
+
+    public static let noTextMessage = "no text recognized"
+
+    public init(
+        languages: [String] = ["en-US"],
+        maxConcurrent: Int = 4,
+        lineEnding: SRTLineEnding = .crlf,
+        cleaner: OCRTextCleaner? = nil
+    ) {
+        self.languages = languages
+        self.maxConcurrent = max(1, maxConcurrent)
+        self.lineEnding = lineEnding
+        self.cleaner = cleaner ?? OCRTextCleaner(fixEnglishPronounI: OCRTextCleaner.usesEnglish(languages))
+    }
+
+    /// Decode a .sup file, recognize every cue, and assemble the SRT text.
+    public func transcribeFile(
+        data: Data,
+        decoder: PGSDecoder = PGSDecoder(),
+        recognizer: any SubtitleRecognizing,
+        progress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> TranscriptionResult {
+        let cues = try decoder.decode(data)
+        return try await transcribe(cues: cues, recognizer: recognizer, progress: progress)
+    }
+
+    /// Recognize cues that are already decoded.
+    public func transcribe(
+        cues: [SubtitleCue],
+        recognizer: any SubtitleRecognizing,
+        progress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> TranscriptionResult {
+        let total = cues.count
+        if total == 0 {
+            return TranscriptionResult(cues: [], failures: [], srt: try SRTWriter(lineEnding: lineEnding).write([]))
+        }
+
+        var outcomes = [CueOutcome?](repeating: nil, count: total)
+        let limit = maxConcurrent
+        try await withThrowingTaskGroup(of: (Int, CueOutcome).self) { group in
+            var nextIndex = 0
+            var running = 0
+            func scheduleNext() {
+                while running < limit && nextIndex < total {
+                    let index = nextIndex
+                    nextIndex += 1
+                    running += 1
+                    group.addTask {
+                        let outcome = try await self.recognize(cues[index], index: index, recognizer: recognizer)
+                        return (index, outcome)
+                    }
+                }
+            }
+            scheduleNext()
+            var completed = 0
+            while let (index, outcome) = try await group.next() {
+                running -= 1
+                outcomes[index] = outcome
+                completed += 1
+                progress?(TranscriptionProgress(completed: completed, total: total, cueIndex: index))
+                scheduleNext()
+            }
+        }
+
+        var srtCues: [SRTCue] = []
+        var failures: [CueRecognitionFailure] = []
+        srtCues.reserveCapacity(total)
+        for outcome in outcomes {
+            guard let outcome else { continue }
+            srtCues.append(outcome.cue)
+            if let failure = outcome.failure {
+                failures.append(failure)
+            }
+        }
+        let srt = try SRTWriter(lineEnding: lineEnding).write(srtCues)
+        return TranscriptionResult(cues: srtCues, failures: failures, srt: srt)
+    }
+
+    private struct CueOutcome: Sendable {
+        var cue: SRTCue
+        var failure: CueRecognitionFailure?
+    }
+
+    private func recognize(
+        _ cue: SubtitleCue,
+        index: Int,
+        recognizer: any SubtitleRecognizing
+    ) async throws -> CueOutcome {
+        try Task.checkCancellation()
+        do {
+            let recognized = try await recognizer.recognize(image: cue.image, languages: languages)
+            let text = assemble(recognized)
+            if text.isEmpty {
+                let failure = CueRecognitionFailure(
+                    cueIndex: index,
+                    startPTS: cue.startPTS,
+                    endPTS: cue.endPTS,
+                    message: Self.noTextMessage
+                )
+                return CueOutcome(
+                    cue: SRTCue(startPTS: cue.startPTS, endPTS: cue.endPTS, text: failure.placeholder),
+                    failure: failure
+                )
+            }
+            return CueOutcome(
+                cue: SRTCue(startPTS: cue.startPTS, endPTS: cue.endPTS, text: text),
+                failure: nil
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let message = Self.flatten((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            let failure = CueRecognitionFailure(
+                cueIndex: index,
+                startPTS: cue.startPTS,
+                endPTS: cue.endPTS,
+                message: message
+            )
+            return CueOutcome(
+                cue: SRTCue(startPTS: cue.startPTS, endPTS: cue.endPTS, text: failure.placeholder),
+                failure: failure
+            )
+        }
+    }
+
+    /// Lines with positions win over the flat `text` string. Italic pieces on
+    /// the same row are joined before cleanup, then wrapped in `<i>`.
+    private func assemble(_ result: OCRResult) -> String {
+        let lines = result.lines.isEmpty ? fallbackLines(result.text) : result.lines
+        let rendered = ReadingOrder.rows(from: lines).compactMap { row -> String? in
+            let text = render(row)
+            return text.isEmpty ? nil : text
+        }
+        return rendered.joined(separator: "\n")
+    }
+
+    private func render(_ row: [RecognizedLine]) -> String {
+        var chunks: [(italic: Bool, text: String)] = []
+        for item in row {
+            let raw = item.text
+                .replacingOccurrences(of: "\r\n", with: " ")
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+            if let last = chunks.indices.last, chunks[last].italic == item.isItalic {
+                chunks[last].text += " " + raw
+            } else {
+                chunks.append((item.isItalic, raw))
+            }
+        }
+        var pieces: [String] = []
+        for chunk in chunks {
+            let cleaned = cleaner.cleanLine(chunk.text)
+            guard !cleaned.isEmpty else { continue }
+            pieces.append(chunk.italic ? "<i>\(cleaned)</i>" : cleaned)
+        }
+        return pieces.joined(separator: " ")
+    }
+
+    private func fallbackLines(_ text: String) -> [RecognizedLine] {
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let parts = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        return parts.enumerated().map { index, part in
+            RecognizedLine(text: String(part), confidence: nil, isItalic: false, top: index, left: 0, height: 1)
+        }
+    }
+
+    private static func flatten(_ message: String) -> String {
+        let collapsed = message.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        if collapsed.isEmpty { return "recognition failed" }
+        if collapsed.count > 180 {
+            return String(collapsed.prefix(180)) + "…"
+        }
+        return collapsed
+    }
+}
