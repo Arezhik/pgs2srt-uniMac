@@ -10,7 +10,7 @@
 		A10000000000000000000008 /* PGS2SRTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* PGS2SRTApp.swift */; };
 		A10000000000000000000009 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* ContentView.swift */; };
 		A1000000000000000000000A /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000015 /* PGSCore */; };
-		A10000000000000000000019 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000017 /* main.swift */; };
+		A10000000000000000000019 /* PGS2SRTCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000017 /* PGS2SRTCLI.swift */; };
 		A1000000000000000000001A /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000022 /* PGSCore */; };
 		A1000000000000000000001B /* VisionOCR in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000023 /* VisionOCR */; };
 /* End PBXBuildFile section */
@@ -19,7 +19,7 @@
 		A10000000000000000000005 /* PGS2SRT.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PGS2SRT.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000006 /* PGS2SRTApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGS2SRTApp.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		A10000000000000000000017 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A10000000000000000000017 /* PGS2SRTCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGS2SRTCLI.swift; sourceTree = "<group>"; };
 		A10000000000000000000018 /* pgs2srt */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = pgs2srt; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -65,7 +65,7 @@
 		A10000000000000000000016 /* pgs2srt */ = {
 			isa = PBXGroup;
 			children = (
-				A10000000000000000000017 /* main.swift */,
+				A10000000000000000000017 /* PGS2SRTCLI.swift */,
 			);
 			path = Sources/pgs2srt;
 			sourceTree = "<group>";
@@ -175,7 +175,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000019 /* main.swift in Sources */,
+				A10000000000000000000019 /* PGS2SRTCLI.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
