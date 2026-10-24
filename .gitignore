@@ -1,0 +1,23 @@
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+
+# Debug symbols
+*.dSYM
+
+# Optional real subtitle samples. See the README.
+Tests/PGSCoreTests/Fixtures/*.sup
+Tests/PGSCoreTests/Fixtures/*.SUP

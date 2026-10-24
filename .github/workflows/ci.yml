@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux tests
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.2.4
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Test
+        run: swift test
+
+  macos:
+    name: macOS universal app
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve local package
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project PGS2SRT.xcodeproj \
+            -scheme PGS2SRT
+
+      - name: Build universal app
+        run: |
+          xcodebuild \
+            -project PGS2SRT.xcodeproj \
+            -scheme PGS2SRT \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/build" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Verify both architectures and zip
+        run: |
+          set -euo pipefail
+          APP="$GITHUB_WORKSPACE/build/Build/Products/Release/PGS2SRT.app"
+          if [ ! -d "$APP" ]; then
+            APP="$(find "$GITHUB_WORKSPACE/build" -type d -name 'PGS2SRT.app' | head -1)"
+          fi
+          test -d "$APP"
+          BIN="$APP/Contents/MacOS/PGS2SRT"
+          test -f "$BIN"
+          lipo -info "$BIN"
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "Architectures: $ARCHS"
+          echo "$ARCHS" | grep -qw arm64
+          echo "$ARCHS" | grep -qw x86_64
+          ditto -c -k --keepParent "$APP" "$GITHUB_WORKSPACE/PGS2SRT-universal.zip"
+          test -s "$GITHUB_WORKSPACE/PGS2SRT-universal.zip"
+
+      - name: Upload app
+        uses: actions/upload-artifact@v7
+        with:
+          path: PGS2SRT-universal.zip
+          if-no-files-found: error
+          archive: false
