@@ -26,6 +26,7 @@ jobs:
         run: swift build
 
       - name: pgs2srt on Linux explains it needs a Mac
+        shell: bash
         run: |
           set -euo pipefail
           .build/debug/pgs2srt --help | grep -q "Apple Vision"
