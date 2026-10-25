@@ -215,16 +215,14 @@ enum LanguageChoices {
 /// Asks the first time a batch starts, and stays quiet if the person says no.
 enum BatchNotifier {
     static func requestPermissionIfNeeded() {
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard settings.authorizationStatus == .notDetermined else { return }
-            center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
     }
 
     static func announce(_ outcome: BatchOutcome) {
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized, .provisional:
                 break
@@ -236,7 +234,7 @@ enum BatchNotifier {
             content.body = outcome.notificationBody
             content.sound = .default
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            center.add(request) { _ in }
+            UNUserNotificationCenter.current().add(request) { _ in }
         }
     }
 }

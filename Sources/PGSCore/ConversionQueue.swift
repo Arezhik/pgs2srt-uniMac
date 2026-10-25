@@ -118,7 +118,6 @@ public struct ConversionServices: Sendable {
     public static func live(
         convert: @escaping @Sendable (ConversionWork) async throws -> TranscriptionResult
     ) -> ConversionServices {
-        let manager = FileManager.default
         return ConversionServices(
             read: { path in
                 try Data(contentsOf: URL(fileURLWithPath: path))
@@ -126,10 +125,10 @@ public struct ConversionServices: Sendable {
             write: { path, text in
                 try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
             },
-            fileExists: { manager.fileExists(atPath: $0) },
+            fileExists: { FileManager.default.fileExists(atPath: $0) },
             directoryExists: { path in
                 var isDirectory: ObjCBool = false
-                return manager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
             },
             listing: .live,
             convert: convert
