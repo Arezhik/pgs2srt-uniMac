@@ -7,12 +7,15 @@ public struct ConversionCommand: Equatable, Sendable {
     public var outputPath: String
     public var languages: [String]
     public var jobs: Int
+    /// Experimental. Wrap leaning lines in `<i>`. Off unless `--italics` is passed.
+    public var italics: Bool
 
-    public init(inputPath: String, outputPath: String, languages: [String], jobs: Int) {
+    public init(inputPath: String, outputPath: String, languages: [String], jobs: Int, italics: Bool) {
         self.inputPath = inputPath
         self.outputPath = outputPath
         self.languages = languages
         self.jobs = jobs
+        self.italics = italics
     }
 
     public enum ParseOutcome: Equatable, Sendable {
@@ -24,7 +27,7 @@ public struct ConversionCommand: Equatable, Sendable {
     pgs2srt — read a Blu-ray PGS .sup file and write an .srt subtitle file
 
     Usage:
-      pgs2srt <input.sup> [output.srt] [--lang <tag>]... [--jobs <n>]
+      pgs2srt <input.sup> [output.srt] [--lang <tag>]... [--jobs <n>] [--italics]
 
     The .srt file is written next to the .sup file when you leave out output.srt.
     Text recognition uses Apple Vision and only runs on a Mac.
@@ -33,6 +36,8 @@ public struct ConversionCommand: Equatable, Sendable {
       --lang <tag>   Language to look for, such as en-US or fr-FR. Repeat to add another.
                      Default: en-US
       --jobs <n>     How many subtitle pictures to read at the same time. Default: 4
+      --italics      Experimental. Wrap a line that leans to the right in <i> tags.
+                     Off by default. Upright Blu-ray type was often marked by mistake.
       -h, --help     Show this help
     """
 
@@ -46,10 +51,13 @@ public struct ConversionCommand: Equatable, Sendable {
         var output: String?
         var languages: [String] = []
         var jobs = 4
+        var italics = false
         var index = 0
         while index < args.count {
             let argument = args[index]
-            if argument == "--lang" {
+            if argument == "--italics" {
+                italics = true
+            } else if argument == "--lang" {
                 index += 1
                 guard index < args.count else { throw ConversionCommandError.missingLanguage }
                 languages.append(try language(args[index]))
@@ -75,7 +83,15 @@ public struct ConversionCommand: Equatable, Sendable {
         guard let input else { throw ConversionCommandError.missingInput }
         if languages.isEmpty { languages = ["en-US"] }
         let outputPath = output ?? defaultOutputPath(for: input)
-        return .convert(ConversionCommand(inputPath: input, outputPath: outputPath, languages: languages, jobs: jobs))
+        return .convert(
+            ConversionCommand(
+                inputPath: input,
+                outputPath: outputPath,
+                languages: languages,
+                jobs: jobs,
+                italics: italics
+            )
+        )
     }
 
     /// `movie.sup` becomes `movie.srt` in the same directory. The path is not

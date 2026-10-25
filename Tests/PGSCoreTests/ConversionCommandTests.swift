@@ -11,6 +11,7 @@ final class ConversionCommandTests: XCTestCase {
         XCTAssertEqual(command.outputPath, "Films/Movie.srt")
         XCTAssertEqual(command.languages, ["en-US"])
         XCTAssertEqual(command.jobs, 4)
+        XCTAssertFalse(command.italics)
     }
 
     func testExplicitOutputLanguagesAndJobs() throws {
@@ -24,7 +25,16 @@ final class ConversionCommandTests: XCTestCase {
         XCTAssertEqual(command.outputPath, "/tmp/out.srt")
         XCTAssertEqual(command.languages, ["fr-FR", "de-DE"])
         XCTAssertEqual(command.jobs, 2)
+        XCTAssertFalse(command.italics)
         XCTAssertEqual(ConversionCommand.defaultOutputPath(for: "notes"), "notes.srt")
+
+        let withItalics = try ConversionCommand.parse(["pgs2srt", "Movie.sup", "--italics"])
+        guard case let .convert(italicCommand) = withItalics else {
+            return XCTFail("expected a conversion")
+        }
+        XCTAssertTrue(italicCommand.italics)
+        XCTAssertTrue(ConversionCommand.helpText.contains("--italics"))
+        XCTAssertTrue(ConversionCommand.helpText.contains("experimental") || ConversionCommand.helpText.contains("Experimental"))
     }
 
     func testHelpAndErrors() throws {

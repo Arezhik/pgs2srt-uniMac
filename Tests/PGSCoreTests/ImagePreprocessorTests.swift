@@ -100,6 +100,48 @@ final class ImagePreprocessorTests: XCTestCase {
         XCTAssertEqual(dotted.lines.count, 1)
     }
 
+    func testLightFillWithDarkOutlineIsDrawnOnBlackSoTheFillSurvives() {
+        let prep = ImagePreprocessor(padding: 0, minimumInkHeight: 1, maximumScale: 1)
+        // A one-pixel black ring around a light center, which is how these Blu-ray letters are built.
+        let prepared = prep.prepare(outlinedBlock(fill: RGBA(r: 240, g: 240, b: 240, a: 255), outline: RGBA(r: 0, g: 0, b: 0, a: 255)))
+        XCTAssertEqual(prepared.background, RGBA(r: 0, g: 0, b: 0, a: 255))
+        XCTAssertGreaterThan(prepared.color(x: 4, y: 4).r, 200)
+        XCTAssertLessThan(prepared.color(x: 0, y: 4).r, 20)
+    }
+
+    func testDarkFillWithLightOutlineStaysOnWhite() {
+        let prep = ImagePreprocessor(padding: 0, minimumInkHeight: 1, maximumScale: 1)
+        let prepared = prep.prepare(outlinedBlock(fill: RGBA(r: 10, g: 10, b: 10, a: 255), outline: RGBA(r: 240, g: 240, b: 240, a: 255)))
+        XCTAssertEqual(prepared.background, RGBA(r: 255, g: 255, b: 255, a: 255))
+        XCTAssertLessThan(prepared.color(x: 4, y: 4).r, 40)
+    }
+
+    func testRealDiscOutlinesCompositeOntoBlackWhenPicturesArePresent() throws {
+        let root = ProcessInfo.processInfo.environment["PGS_VALIDATION_DUMP"] ?? "/tmp/pgs-validation/dump"
+        let folder = URL(fileURLWithPath: root, isDirectory: true)
+        let sample = folder.appendingPathComponent("0001.pam")
+        guard FileManager.default.fileExists(atPath: sample.path) else {
+            throw XCTSkip("Decoded cue pictures are not on this machine. Set PGS_VALIDATION_DUMP to check a real disc.")
+        }
+        // Spread across the episode, including cues whose inner fill was closest to the old cutoff.
+        let names = [1, 3, 5, 68, 92, 96, 98, 278, 370, 376, 456, 712, 745, 777].map { String(format: "%04d.pam", $0) }
+        let prep = ImagePreprocessor(padding: 0, minimumInkHeight: 1, maximumScale: 1)
+        var checked = 0
+        for name in names {
+            let picture = try loadPAM(folder.appendingPathComponent(name))
+            let prepared = prep.prepare(picture)
+            XCTAssertFalse(prepared.isBlank, name)
+            XCTAssertEqual(
+                prepared.background,
+                RGBA(r: 0, g: 0, b: 0, a: 255),
+                "\(name) was drawn on white, so a light fill with a dark outline would disappear"
+            )
+            XCTAssertGreaterThan(brightPixelCount(prepared), 20, name)
+            checked += 1
+        }
+        XCTAssertGreaterThanOrEqual(checked, 1)
+    }
+
     func testRightLeaningInkIsItalicAndAnUprightBlockIsNot() {
         let prep = ImagePreprocessor(padding: 0, minimumInkHeight: 1, maximumScale: 1)
         let leaning = prep.prepare(image(width: 50, height: 40) { x, y in
@@ -115,6 +157,17 @@ final class ImagePreprocessorTests: XCTestCase {
         })
         XCTAssertEqual(upright.lines.count, 1)
         XCTAssertFalse(upright.lines[0].isItalic)
+    }
+}
+
+/// 13 by 13 ink: a one-pixel outline and an 11 by 11 fill, with a transparent margin.
+private func outlinedBlock(fill: RGBA, outline: RGBA) -> SubtitleImage {
+    image(width: 15, height: 15) { x, y in
+        let inside = (1..<14).contains(x) && (1..<14).contains(y)
+        let core = (2..<13).contains(x) && (2..<13).contains(y)
+        if core { return fill }
+        if inside { return outline }
+        return RGBA(r: 0, g: 0, b: 0, a: 0)
     }
 }
 
@@ -139,4 +192,50 @@ private func image(width: Int, height: Int, _ pixel: (Int, Int) -> RGBA) -> Subt
         videoWidth: 100,
         videoHeight: 100
     )
+}
+
+private func brightPixelCount(_ image: PreparedSubtitleImage) -> Int {
+    var count = 0
+    var index = 0
+    while index + 3 < image.rgba.count {
+        if image.rgba[index] > 200 && image.rgba[index + 3] == 255 {
+            count += 1
+        }
+        index += 4
+    }
+    return count
+}
+
+/// Reads a P7 RGB_ALPHA PAM written by `pgsdump`. Used only when a local dump is present.
+private func loadPAM(_ url: URL) throws -> SubtitleImage {
+    let data = try Data(contentsOf: url)
+    guard let headerEnd = data.range(of: Data("ENDHDR\n".utf8)) else {
+        throw PAMError("\(url.lastPathComponent) has no PAM header")
+    }
+    let header = String(decoding: data.prefix(headerEnd.lowerBound), as: UTF8.self)
+    var width = 0
+    var height = 0
+    for line in header.split(separator: "\n") {
+        let parts = line.split(separator: " ")
+        if parts.count == 2, parts[0] == "WIDTH" { width = Int(parts[1]) ?? 0 }
+        if parts.count == 2, parts[0] == "HEIGHT" { height = Int(parts[1]) ?? 0 }
+    }
+    let pixels = data.suffix(from: headerEnd.upperBound)
+    guard width > 0, height > 0, pixels.count == width * height * 4 else {
+        throw PAMError("\(url.lastPathComponent) is not a \(width)x\(height) RGBA picture")
+    }
+    return SubtitleImage(
+        width: width,
+        height: height,
+        rgba: [UInt8](pixels),
+        originX: 0,
+        originY: 0,
+        videoWidth: max(width, 1920),
+        videoHeight: max(height, 1080)
+    )
+}
+
+private struct PAMError: Error, CustomStringConvertible {
+    var description: String
+    init(_ description: String) { self.description = description }
 }

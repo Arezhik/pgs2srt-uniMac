@@ -80,7 +80,15 @@ public struct OCRTextCleaner: Equatable, Sendable {
                 continue
             }
             if character == "'" && pendingSpace {
-                pendingSpace = false
+                // "don ' t" and "don 't" are one word. "it 'cause", "'em", and
+                // "'til" are not: the apostrophe starts the next word, so the
+                // space in front of it stays.
+                if let suffix = contractionSuffixStart(in: text, apostropheAt: index) {
+                    pendingSpace = false
+                    output.append("'")
+                    index = suffix
+                    continue
+                }
             }
             if pendingSpace {
                 let skipSpace = ",.;:!?".contains(character) || character == ")"
@@ -99,6 +107,31 @@ public struct OCRTextCleaner: Equatable, Sendable {
             index = text.index(after: index)
         }
         return output
+    }
+
+    /// Letters that complete a contraction: don't, it's, I'd, I'm, I'll, I've, we're.
+    private static let contractionSuffixes: Set<String> = ["t", "s", "d", "m", "ll", "ve", "re"]
+
+    /// The first letter of a contraction suffix after this apostrophe, if the
+    /// apostrophe belongs to the previous word. Spaces between the apostrophe
+    /// and the suffix are allowed. A longer word, such as "cause", is not a suffix.
+    private func contractionSuffixStart(in text: String, apostropheAt index: String.Index) -> String.Index? {
+        var cursor = text.index(after: index)
+        while cursor < text.endIndex && (text[cursor] == " " || text[cursor] == "\t") {
+            cursor = text.index(after: cursor)
+        }
+        guard cursor < text.endIndex, text[cursor].isLetter else { return nil }
+        let start = cursor
+        var token = ""
+        while cursor < text.endIndex, text[cursor].isLetter {
+            token.append(text[cursor])
+            if token.count > 2 { return nil }
+            cursor = text.index(after: cursor)
+        }
+        if Self.contractionSuffixes.contains(token.lowercased()) {
+            return start
+        }
+        return nil
     }
 
     private func trimStrayEdges(_ text: String) -> String {

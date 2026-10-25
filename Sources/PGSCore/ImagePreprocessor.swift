@@ -80,8 +80,10 @@ public struct PreparedSubtitleImage: Equatable, Sendable {
 /// - Transparent pixels are easy to treat as black, so a black outline vanishes
 ///   or the letter shape gets muddy.
 /// - Light letters on a white page would disappear, so the background has to
-///   contrast with the ink. Light ink is drawn on black (the outline melts into
-///   the background and the fill stays). Dark ink is drawn on white.
+///   contrast with the ink. Light ink is drawn on black. Dark ink is drawn on
+///   white. A light fill with a dark outline, the usual Blu-ray look, is light
+///   ink: the outline is ignored and the fill is drawn on black, so the outline
+///   melts into the page and the fill stays.
 /// - Text that touches the edge of the bitmap is often skipped, so the ink is
 ///   padded.
 /// - A line only a few pixels tall is upscaled, by a whole-number factor, until
@@ -92,7 +94,9 @@ public struct PreparedSubtitleImage: Equatable, Sendable {
 ///   such as the dot on an i, stays on the same line.
 /// - Italics are a slant in the pixels, not a flag in the file. If the top half
 ///   of a line sits far enough to the right of the bottom half, the line is
-///   marked italic and the pipeline wraps that text in `<i>`.
+///   marked italic. That guess is experimental. The SRT pipeline leaves it off
+///   unless italics were requested, because upright Blu-ray type was often
+///   marked italic.
 public struct ImagePreprocessor: Equatable, Sendable {
     public var padding: Int
     public var minimumInkHeight: Int
@@ -215,23 +219,92 @@ public struct ImagePreprocessor: Equatable, Sendable {
         return Crop(minX: minX, minY: minY, maxX: maxX, maxY: maxY)
     }
 
+    /// Black behind light fill, white behind dark fill.
+    ///
+    /// The sample is the middle of the ink, not an average of every opaque
+    /// pixel. A dark outline around a light letter would pull that average
+    /// down and the fill would be drawn on white, where it disappears. A pixel
+    /// counts as fill only when its eight neighbors are ink too, so the outline
+    /// (which touches transparency) is left out. The brightness used is the
+    /// middle of those inner pixels. A stroke too thin to have an inside falls
+    /// back to the middle of all of its ink.
     private func backgroundColor(of image: SubtitleImage, crop: Crop) -> RGBA {
-        var weight = 0.0
-        var luma = 0.0
-        for y in crop.minY..<crop.maxY {
-            for x in crop.minX..<crop.maxX {
-                let pixel = image.color(x: x, y: y)
-                let alphaWeight = Double(pixel.a) / 255.0
-                guard pixel.a >= UInt8(inkAlpha) else { continue }
-                weight += alphaWeight
-                luma += alphaWeight * luminance(pixel)
-            }
-        }
-        let average = weight > 0 ? luma / weight : 255
-        if average >= Double(lightInkLuminance) {
+        let brightness = fillLuminance(of: image, crop: crop)
+        if brightness >= Double(lightInkLuminance) {
             return RGBA(r: 0, g: 0, b: 0, a: 255)
         }
         return RGBA(r: 255, g: 255, b: 255, a: 255)
+    }
+
+    private func fillLuminance(of image: SubtitleImage, crop: Crop) -> Double {
+        var interior = [Int](repeating: 0, count: 256)
+        var allInk = [Int](repeating: 0, count: 256)
+        var interiorCount = 0
+        var allCount = 0
+        let threshold = UInt8(inkAlpha)
+        for y in crop.minY..<crop.maxY {
+            for x in crop.minX..<crop.maxX {
+                let pixel = image.color(x: x, y: y)
+                guard pixel.a >= threshold else { continue }
+                let bin = luminanceBin(pixel)
+                allInk[bin] += 1
+                allCount += 1
+                if isFill(image, x: x, y: y, threshold: threshold) {
+                    interior[bin] += 1
+                    interiorCount += 1
+                }
+            }
+        }
+        if interiorCount > 0 {
+            return medianBin(interior, count: interiorCount)
+        }
+        if allCount > 0 {
+            return medianBin(allInk, count: allCount)
+        }
+        return 255
+    }
+
+    /// True when this pixel is inside the stroke, not on the outline.
+    private func isFill(_ image: SubtitleImage, x: Int, y: Int, threshold: UInt8) -> Bool {
+        for dy in -1...1 {
+            for dx in -1...1 {
+                let nx = x + dx
+                let ny = y + dy
+                if nx < 0 || ny < 0 || nx >= image.width || ny >= image.height {
+                    return false
+                }
+                if image.color(x: nx, y: ny).a < threshold {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
+    private func luminanceBin(_ pixel: RGBA) -> Int {
+        let value = Int(luminance(pixel).rounded())
+        return min(255, max(0, value))
+    }
+
+    /// The middle value of a 0...255 histogram. `count` is the number of samples.
+    private func medianBin(_ histogram: [Int], count: Int) -> Double {
+        let lowerIndex = (count - 1) / 2
+        let upperIndex = count / 2
+        var seen = 0
+        var lower: Double?
+        var upper: Double?
+        for bin in 0..<histogram.count {
+            let next = seen + histogram[bin]
+            if lower == nil && next > lowerIndex {
+                lower = Double(bin)
+            }
+            if next > upperIndex {
+                upper = Double(bin)
+                break
+            }
+            seen = next
+        }
+        return ((lower ?? 255) + (upper ?? 255)) / 2
     }
 
     private func composite(_ image: SubtitleImage, crop: Crop, background: RGBA) -> [UInt8] {

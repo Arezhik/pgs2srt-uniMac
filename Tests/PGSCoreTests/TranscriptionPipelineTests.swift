@@ -3,7 +3,7 @@ import PGSCore
 
 final class TranscriptionPipelineTests: XCTestCase {
     func testReadingOrderAndItalicTagsAndCleanup() async throws {
-        let pipeline = TranscriptionPipeline(languages: ["en-US"], maxConcurrent: 1)
+        let pipeline = TranscriptionPipeline(languages: ["en-US"], maxConcurrent: 1, italics: true)
         let result = try await pipeline.transcribe(
             cues: [sampleCue(width: 8, start: 90_000)],
             recognizer: FixedLinesRecognizer(lines: [
@@ -21,6 +21,25 @@ final class TranscriptionPipelineTests: XCTestCase {
             result.srt,
             "1\r\n00:00:01,000 --> 00:00:02,000\r\n<i>I am there</i> right\r\nbottom\r\n"
         )
+    }
+
+    func testItalicsAreOffUnlessRequested() async throws {
+        let lines = [
+            RecognizedLine(text: "a dangerous point", confidence: 0.9, isItalic: true, top: 0, left: 0, height: 10)
+        ]
+        let off = try await TranscriptionPipeline().transcribe(
+            cues: [sampleCue(width: 8, start: 0)],
+            recognizer: FixedLinesRecognizer(lines: lines)
+        )
+        XCTAssertEqual(off.cues[0].text, "a dangerous point")
+        XCTAssertFalse(off.cues[0].text.contains("<i>"))
+        XCTAssertFalse(TranscriptionPipeline().italics)
+
+        let on = try await TranscriptionPipeline(italics: true).transcribe(
+            cues: [sampleCue(width: 8, start: 0)],
+            recognizer: FixedLinesRecognizer(lines: lines)
+        )
+        XCTAssertEqual(on.cues[0].text, "<i>a dangerous point</i>")
     }
 
     func testFlatTextIsSplitCleanedAndKeptInOrder() async throws {

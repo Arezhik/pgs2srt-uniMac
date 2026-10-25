@@ -70,6 +70,9 @@ public struct TranscriptionPipeline: Sendable {
     public var maxConcurrent: Int
     public var cleaner: OCRTextCleaner
     public var lineEnding: SRTLineEnding
+    /// When true, a line the image preparer marked as leaning is wrapped in `<i>`.
+    /// Off by default. The lean check is experimental and often wrong for upright type.
+    public var italics: Bool
 
     public static let noTextMessage = "no text recognized"
 
@@ -77,11 +80,13 @@ public struct TranscriptionPipeline: Sendable {
         languages: [String] = ["en-US"],
         maxConcurrent: Int = 4,
         lineEnding: SRTLineEnding = .crlf,
+        italics: Bool = false,
         cleaner: OCRTextCleaner? = nil
     ) {
         self.languages = languages
         self.maxConcurrent = max(1, maxConcurrent)
         self.lineEnding = lineEnding
+        self.italics = italics
         self.cleaner = cleaner ?? OCRTextCleaner(fixEnglishPronounI: OCRTextCleaner.usesEnglish(languages))
     }
 
@@ -195,8 +200,9 @@ public struct TranscriptionPipeline: Sendable {
         }
     }
 
-    /// Lines with positions win over the flat `text` string. Italic pieces on
-    /// the same row are joined before cleanup, then wrapped in `<i>`.
+    /// Lines with positions win over the flat `text` string. When `italics` is
+    /// on, italic pieces on the same row are joined before cleanup, then wrapped
+    /// in `<i>`. Otherwise the lean flag is ignored and no italic tags are written.
     private func assemble(_ result: OCRResult) -> String {
         let lines = result.lines.isEmpty ? fallbackLines(result.text) : result.lines
         let rendered = ReadingOrder.rows(from: lines).compactMap { row -> String? in
@@ -213,10 +219,11 @@ public struct TranscriptionPipeline: Sendable {
                 .replacingOccurrences(of: "\r\n", with: " ")
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\r", with: " ")
-            if let last = chunks.indices.last, chunks[last].italic == item.isItalic {
+            let italic = italics && item.isItalic
+            if let last = chunks.indices.last, chunks[last].italic == italic {
                 chunks[last].text += " " + raw
             } else {
-                chunks.append((item.isItalic, raw))
+                chunks.append((italic, raw))
             }
         }
         var pieces: [String] = []

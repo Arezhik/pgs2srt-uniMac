@@ -13,9 +13,21 @@ final class OCRCleanupTests: XCTestCase {
         XCTAssertEqual(cleaner.cleanLine("Hello , world !"), "Hello, world!")
         XCTAssertEqual(cleaner.cleanLine("Wait ..."), "Wait...")
         XCTAssertEqual(cleaner.cleanLine("don 't"), "don't")
+        XCTAssertEqual(cleaner.cleanLine("don ' t"), "don't")
         XCTAssertEqual(cleaner.cleanLine("I 'm"), "I'm")
+        XCTAssertEqual(cleaner.cleanLine("I ' m"), "I'm")
+        XCTAssertEqual(cleaner.cleanLine("we 're home"), "we're home")
         XCTAssertEqual(cleaner.cleanLine("l\u{2019}m"), "I'm")
         XCTAssertEqual(cleaner.cleanLine("( Hello )"), "(Hello)")
+    }
+
+    func testApostropheThatStartsAWordKeepsItsSpace() {
+        XCTAssertEqual(cleaner.cleanLine("it 'cause I know you"), "it 'cause I know you")
+        XCTAssertEqual(cleaner.cleanLine("see 'em"), "see 'em")
+        XCTAssertEqual(cleaner.cleanLine("'em"), "'em")
+        XCTAssertEqual(cleaner.cleanLine("'til later"), "'til later")
+        XCTAssertEqual(cleaner.cleanLine("wait 'til dawn"), "wait 'til dawn")
+        XCTAssertEqual(cleaner.cleanLine("rock 'n' roll"), "rock 'n' roll")
     }
 
     func testEnglishPronounFixesLeaveRealWordsAlone() {

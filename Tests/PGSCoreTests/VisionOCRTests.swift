@@ -74,6 +74,39 @@ final class VisionOCRTests: XCTestCase {
         XCTAssertTrue(transcribed.failures.isEmpty)
         XCTAssertTrue(transcribed.srt.contains("00:00:01,000"))
     }
+
+    func testOutlinedWhiteLettersAreReadOnBlack() async throws {
+        let image = try renderedOutlinedSubtitle("still fly beaming")
+        let prepared = ImagePreprocessor().prepare(image)
+        XCTAssertEqual(
+            prepared.background,
+            RGBA(r: 0, g: 0, b: 0, a: 255),
+            "A light fill with a dark outline must be drawn on black"
+        )
+        XCTAssertGreaterThan(brightPreparedPixels(prepared), 100, "The white fill disappeared into the page")
+
+        let result = try await VisionOCR().recognize(image: image, languages: ["en-US"])
+        let text = result.text.lowercased()
+        for word in ["still", "fly", "beaming"] {
+            XCTAssertTrue(
+                text.contains(word),
+                "Vision read \(result.text.debugDescription) and missed \(word)"
+            )
+        }
+
+        let cue = SubtitleCue(
+            startPTS: 0,
+            endPTS: 90_000,
+            image: image,
+            forced: false,
+            endReason: .clearingDisplaySet
+        )
+        let written = try await TranscriptionPipeline(maxConcurrent: 1).transcribe(
+            cues: [cue],
+            recognizer: VisionOCR()
+        )
+        XCTAssertFalse(written.cues[0].text.contains("<i>"), "Italics are off unless requested")
+    }
 }
 
 /// Draws white Helvetica on a transparent bitmap with Core Text, which does not
@@ -154,6 +187,110 @@ private func renderedSubtitle(_ string: String) throws -> SubtitleImage {
         videoWidth: max(width, 1920),
         videoHeight: max(height, 1080)
     )
+}
+
+/// White Helvetica fill with a black stroke, the usual Blu-ray letter.
+private func renderedOutlinedSubtitle(_ string: String) throws -> SubtitleImage {
+    let font = CTFontCreateWithName("Helvetica" as CFString, 96, nil)
+    let white = CGColor(gray: 1, alpha: 1)
+    let black = CGColor(gray: 0, alpha: 1)
+    // Stroke width is a percentage of the point size. 3 is a thin outline
+    // (about three points at 96 pt), close to a Blu-ray edge, and light
+    // enough that f, t, i, and l do not blob together.
+    let strokeAttributes = [
+        kCTFontAttributeName: font,
+        kCTForegroundColorAttributeName: black,
+        kCTStrokeColorAttributeName: black,
+        kCTStrokeWidthAttributeName: 3.0
+    ] as CFDictionary
+    let fillAttributes = [
+        kCTFontAttributeName: font,
+        kCTForegroundColorAttributeName: white
+    ] as CFDictionary
+    let strokeText = CFAttributedStringCreate(nil, string as CFString, strokeAttributes)!
+    let fillText = CFAttributedStringCreate(nil, string as CFString, fillAttributes)!
+    let framesetter = CTFramesetterCreateWithAttributedString(fillText)
+    let length = CFAttributedStringGetLength(fillText)
+    var fit = CFRange(location: 0, length: 0)
+    let suggested = CTFramesetterSuggestFrameSizeWithConstraints(
+        framesetter,
+        CFRange(location: 0, length: length),
+        nil,
+        CGSize(width: 1800, height: 400),
+        &fit
+    )
+    let pad: CGFloat = 48
+    let width = max(8, Int((suggested.width + pad * 2).rounded(.up)))
+    let height = max(8, Int((suggested.height + pad * 2).rounded(.up)))
+    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: bitmapInfo
+    ) else {
+        throw FixtureError("Could not create an outlined bitmap for \(string).")
+    }
+    context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+    context.textMatrix = .identity
+    context.translateBy(x: 0, y: CGFloat(height))
+    context.scaleBy(x: 1, y: -1)
+    let path = CGPath(
+        rect: CGRect(x: pad, y: pad, width: suggested.width + 16, height: suggested.height + 16),
+        transform: nil
+    )
+    let strokeFrame = CTFramesetterCreateFrame(
+        CTFramesetterCreateWithAttributedString(strokeText),
+        CFRange(location: 0, length: 0),
+        path,
+        nil
+    )
+    let fillFrame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: 0), path, nil)
+    CTFrameDraw(strokeFrame, context)
+    CTFrameDraw(fillFrame, context)
+    guard let image = context.makeImage(),
+          let data = image.dataProvider?.data,
+          let pointer = CFDataGetBytePtr(data) else {
+        throw FixtureError("Could not read the outlined bitmap for \(string).")
+    }
+    let pixelWidth = image.width
+    let pixelHeight = image.height
+    let rowBytes = image.bytesPerRow
+    guard pixelWidth > 0, pixelHeight > 0, rowBytes >= pixelWidth * 4,
+          CFDataGetLength(data) >= rowBytes * pixelHeight else {
+        throw FixtureError("The outlined bitmap for \(string) had an unexpected size.")
+    }
+    var rgba = [UInt8](repeating: 0, count: pixelWidth * pixelHeight * 4)
+    for row in 0..<pixelHeight {
+        let source = pointer.advanced(by: (pixelHeight - 1 - row) * rowBytes)
+        let destination = row * pixelWidth * 4
+        for column in 0..<(pixelWidth * 4) {
+            rgba[destination + column] = source[column]
+        }
+    }
+    unpremultiply(&rgba)
+    return SubtitleImage(
+        width: pixelWidth,
+        height: pixelHeight,
+        rgba: rgba,
+        originX: 0,
+        originY: 0,
+        videoWidth: max(width, 1920),
+        videoHeight: max(height, 1080)
+    )
+}
+
+private func brightPreparedPixels(_ image: PreparedSubtitleImage) -> Int {
+    var count = 0
+    var index = 0
+    while index + 3 < image.rgba.count {
+        if image.rgba[index] > 200 { count += 1 }
+        index += 4
+    }
+    return count
 }
 
 private func unpremultiply(_ rgba: inout [UInt8]) {
