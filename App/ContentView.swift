@@ -152,7 +152,7 @@ struct ContentView: View {
         return true
     }
 
-    private nonisolated static func loadURL(from provider: NSItemProvider) async -> URL? {
+    private static func loadURL(from provider: NSItemProvider) async -> URL? {
         await withCheckedContinuation { continuation in
             let once = ResumeOnce()
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
