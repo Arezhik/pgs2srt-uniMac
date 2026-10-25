@@ -35,6 +35,14 @@ xcrun swift run pgs2srt "/path/to/Movie.sup" "/path/to/Movie.srt" --lang en-US -
 
 `--lang` is a language tag such as `en-US` or `fr-FR`. Repeat it to add another language. English is the default. `--jobs` is how many subtitles to recognize at the same time (default 4).
 
+Italics are off. Add `--italics` only if you want the tool to guess which lines lean and wrap those in `<i>`. That guess is experimental. On a real Blu-ray it marked ordinary upright dialogue, so it is not used unless you ask.
+
+To check a file you already converted, write the new subtitles to a different name and compare:
+
+```bash
+xcrun swift run pgs2srt "/path/to/Movie.sup" "/path/to/Movie-fixed.srt"
+```
+
 `xcrun swift run pgs2srt --help` prints the same instructions.
 
 ### From Xcode
@@ -100,7 +108,7 @@ The downloaded app is the same placeholder window. It is there so you can confir
 - Turn each palette color from limited-range YCbCr into RGBA. Frames taller than 576 pixels use BT.709. Shorter frames use BT.601. A caller can force either one.
 - Compose each display set into an image and a time range. Times are the 90 kHz timestamps stored in the file. A subtitle stays up until the next display set that clears the screen. A different picture, or a new epoch, closes it early so the first picture is not thrown away. Palette fades keep one cue and the most solid frame.
 - Write an `.srt` file: cue numbers, `HH:MM:SS,mmm` times, and CRLF line endings (LF is available too).
-- Recognize the words with Apple Vision (`VNRecognizeTextRequest`, accurate mode, language correction, English by default). The pictures are prepared first: light letters are drawn on black and dark letters on white, then padded and enlarged when the line is tiny. Lines are ordered top to bottom. A line that leans to the right is wrapped in `<i>` italics. Common OCR junk is cleaned up (a lone `l` that should be `I`, a bar read as a letter, extra spaces, stray marks).
+- Recognize the words with Apple Vision (`VNRecognizeTextRequest`, accurate mode, language correction, English by default). The pictures are prepared first. Light letters are drawn on black and dark letters on white. A light fill with a dark outline, the usual Blu-ray letter, counts as light ink, so the outline is ignored and the fill is kept on black. Lines are padded and enlarged when the line is tiny, then ordered top to bottom. Italic tags are off unless you pass `--italics`. That lean check is experimental. Common OCR junk is cleaned up (a lone `l` that should be `I`, a bar read as a letter, extra spaces, stray marks). A space before an apostrophe that starts a word, as in "it 'cause", is kept. Spaces inside a contraction, as in "don ' t", are still joined.
 - Keep a cue when recognition fails. The `.srt` line says `[OCR failed: …]` instead of skipping it. Several pictures are read at once, with progress, and the work can be cancelled.
 - `pgs2srt`, the Mac command that runs that whole path from a `.sup` file to an `.srt` file.
 - `pgsdump`, a small command-line tool that writes each decoded picture as a PAM image so a person can look at it. It does not recognize text, and it runs on Linux too.

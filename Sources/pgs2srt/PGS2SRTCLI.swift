@@ -47,7 +47,11 @@ private func convertOnMac(_ command: ConversionCommand) async -> Int32 {
     do {
         let input = URL(fileURLWithPath: command.inputPath)
         let data = try Data(contentsOf: input)
-        let pipeline = TranscriptionPipeline(languages: command.languages, maxConcurrent: command.jobs)
+        let pipeline = TranscriptionPipeline(
+            languages: command.languages,
+            maxConcurrent: command.jobs,
+            italics: command.italics
+        )
         let log = StandardError()
         let result = try await pipeline.transcribeFile(data: data, recognizer: VisionOCR()) { progress in
             log.write("\(progress.completed)/\(progress.total)\n")
