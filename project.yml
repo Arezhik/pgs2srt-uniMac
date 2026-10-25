@@ -17,14 +17,20 @@ targets:
     platform: macOS
     sources:
       - path: App
+    # App Sandbox stays off. User-selected file access does not let the app
+    # create a new .srt next to a dropped .sup, and ad-hoc "Sign to Run Locally"
+    # has no provisioning profile for a sandbox entitlement.
     dependencies:
       - package: PGSCorePackage
         product: PGSCore
+      - package: PGSCorePackage
+        product: VisionOCR
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.PGS2SRT
         PRODUCT_NAME: PGS2SRT
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: App/Info.plist
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         CODE_SIGN_STYLE: Manual
