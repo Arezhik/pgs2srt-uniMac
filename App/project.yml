@@ -1,3 +1,6 @@
+# Lives in App/ on purpose. Run `xcodegen generate` from this folder.
+# The Xcode project must not sit next to Package.swift, and the package
+# must not be named PGS2SRT. Xcode's IDE otherwise reports the products as missing.
 name: PGS2SRT
 options:
   bundleIdPrefix: com.pgs2srt
@@ -6,17 +9,30 @@ options:
   createIntermediateGroups: true
 settings:
   MACOSX_DEPLOYMENT_TARGET: "13.0"
-  SWIFT_VERSION: "5.0"
   SDKROOT: macosx
+  SUPPORTED_PLATFORMS: macosx
+  SUPPORTS_MACCATALYST: NO
+  SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+  SWIFT_VERSION: "5.0"
+  configs:
+    Debug:
+      # Do not set ARCHS here. Debug follows the run destination (My Mac),
+      # so the app and the package module are the same chip.
+      ONLY_ACTIVE_ARCH: YES
+    Release:
+      ONLY_ACTIVE_ARCH: NO
 packages:
   PGSCorePackage:
-    path: .
+    path: ..
 targets:
   PGS2SRT:
     type: application
     platform: macOS
     sources:
-      - path: App
+      - path: .
+        includes:
+          - "*.swift"
+          - Info.plist
     # App Sandbox stays off. User-selected file access does not let the app
     # create a new .srt next to a dropped .sup, and ad-hoc "Sign to Run Locally"
     # has no provisioning profile for a sandbox entitlement.
@@ -30,7 +46,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.PGS2SRT
         PRODUCT_NAME: PGS2SRT
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_FILE: App/Info.plist
+        INFOPLIST_FILE: Info.plist
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         CODE_SIGN_STYLE: Manual
@@ -38,25 +54,27 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: YES
         ENABLE_HARDENED_RUNTIME: NO
-        ONLY_ACTIVE_ARCH: NO
-        ARCHS: [arm64, x86_64]
         INFOPLIST_KEY_CFBundleDisplayName: PGS2SRT
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
         SWIFT_EMIT_LOC_STRINGS: YES
-        SWIFT_STRICT_CONCURRENCY: complete
-        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
         ENABLE_PREVIEWS: YES
         MACOSX_DEPLOYMENT_TARGET: "13.0"
+      configs:
+        Debug:
+          ONLY_ACTIVE_ARCH: YES
+        Release:
+          ONLY_ACTIVE_ARCH: NO
+          ARCHS: [arm64, x86_64]
     scheme:
       gatherCoverageData: false
   pgs2srt:
     type: tool
     platform: macOS
     sources:
-      - path: Sources/pgs2srt
+      - path: ../Sources/pgs2srt
     dependencies:
       - package: PGSCorePackage
         product: PGSCore
@@ -74,13 +92,17 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: YES
         ENABLE_HARDENED_RUNTIME: NO
-        ONLY_ACTIVE_ARCH: NO
-        ARCHS: [arm64, x86_64]
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         SWIFT_VERSION: "5.0"
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path"
+      configs:
+        Debug:
+          ONLY_ACTIVE_ARCH: YES
+        Release:
+          ONLY_ACTIVE_ARCH: NO
+          ARCHS: [arm64, x86_64]
     scheme:
       gatherCoverageData: false

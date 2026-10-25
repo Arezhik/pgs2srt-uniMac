@@ -79,7 +79,7 @@ xcrun swift run pgs2srt "/path/to/Movie.sup" "/path/to/Movie-fixed.srt"
 
 ### From Xcode
 
-1. Open **`PGS2SRT.xcodeproj`** (see the next section if Xcode asks you to trust the project).
+1. Open **`App/PGS2SRT.xcodeproj`** (see the next section if Xcode asks you to trust the project).
 2. At the top of the window, open the scheme menu and choose **pgs2srt** instead of PGS2SRT.
 3. Choose **Product → Scheme → Edit Scheme…**.
 4. Select **Run** on the left, then the **Arguments** tab.
@@ -96,22 +96,23 @@ You do not need Python, Homebrew, or any extra tools.
 
 1. Install Xcode 27 from the App Store if it is not already installed.
 2. Download this repository (the green Code button, or the pull request’s checkout).
-3. Double-click **`PGS2SRT.xcodeproj`**. Do not open `Package.swift`. That file is the decoder library, and Xcode would run it as a command-line tool instead of a window.
-4. If Xcode asks whether to trust the project, choose Trust. The first open loads the local Swift package. Wait until the progress spinner in the title bar finishes. That can take a minute.
-5. At the top of the window, the scheme should say **PGS2SRT** and the destination should be **My Mac**.
-6. Press the Run button (the triangle) or Command-R.
+3. Quit Xcode if it is open. In the repository folder, delete the `.build` folder if you see one. In Terminal, run `rm -rf ~/Library/Developer/Xcode/DerivedData/PGS2SRT-*`.
+4. Double-click **`App/PGS2SRT.xcodeproj`**. Do not open `Package.swift`, and do not open a project file that sits in the repository root. `Package.swift` is the decoder library. Opening it runs a command-line tool instead of the window.
+5. If Xcode asks whether to trust the project, choose Trust. The first open loads the local Swift package. Wait until the progress spinner in the title bar finishes. That can take a minute.
+6. At the top of the window, the scheme should say **PGS2SRT** and the destination should be **My Mac**.
+7. Press the Run button (the triangle) or Command-R.
 
 A window named PGS2SRT opens. Drop a `.sup` file on it, or click Open…. The `.srt` appears next to the source file when the row says Done.
 
 The project is set to **Sign to Run Locally**, so Xcode should not ask for an Apple Developer team. If it does: click the blue PGS2SRT project in the sidebar, select the PGS2SRT target, open Signing & Capabilities, and set the signing certificate to **Sign to Run Locally**.
 
-Both the Debug and Release builds include Apple silicon (`arm64`) and Intel (`x86_64`). The first build is a little slower because of that. The app you run from Xcode is still unsigned in the notarization sense, but Xcode’s local signature is enough to launch it on your Mac.
+Run uses the Debug build, which includes only the chip in the Mac you are using (Apple silicon or Intel). The copy GitHub builds for download is Release, and that one includes both. The app you run from Xcode is still unsigned in the notarization sense, but Xcode’s local signature is enough to launch it on your Mac.
 
 ### Why the project is set up this way
 
-The decoder lives in a Swift package (`Package.swift`). That is what `swift test` runs on Linux, and it is the same code the Mac app uses. The window is a normal Xcode app target that links that package. The `.xcodeproj` is already generated and checked in, so you can open it and press Run.
+The decoder lives in a Swift package named **PGS2SRTKit** (`Package.swift` at the repository root). The Xcode project is named PGS2SRT and lives in `App/`, one folder down, so it is not sitting in the same folder as that package. Xcode’s window gets confused when the package and the project share a name and a folder: the command line can still resolve the package, but the window says the products are missing, and a Debug build then tries to read a module built for a different Mac target. The window is a normal macOS app (not an iPad app, not Mac Catalyst). Debug builds only the chip in the Mac you are using. Release still builds for both Apple silicon and Intel. The `.xcodeproj` is already generated and checked in, so you can open it and press Run.
 
-`project.yml` is a recipe for [XcodeGen](https://github.com/yonaskolb/XcodeGen). You can ignore it. It is only there so a developer can regenerate the Xcode project later if the app target grows (`brew install xcodegen`, then `xcodegen generate`).
+`App/project.yml` is a recipe for [XcodeGen](https://github.com/yonaskolb/XcodeGen). You can ignore it. It is only there so a developer can regenerate the Xcode project later (`brew install xcodegen`, then `cd App` and `xcodegen generate`).
 
 ## Download the app that GitHub built
 

@@ -39,7 +39,7 @@ jobs:
 
   macos:
     name: macOS universal app
-    runs-on: macos-latest
+    runs-on: xcode-27
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -52,15 +52,64 @@ jobs:
 
       - name: Resolve local package
         run: |
-          xcodebuild \
+          set -euo pipefail
+          rm -rf "$GITHUB_WORKSPACE/build" "$GITHUB_WORKSPACE/.build"
+          set +e
+          LOG=$(xcodebuild \
             -resolvePackageDependencies \
-            -project PGS2SRT.xcodeproj \
-            -scheme PGS2SRT
+            -project App/PGS2SRT.xcodeproj \
+            -scheme PGS2SRT \
+            -derivedDataPath "$GITHUB_WORKSPACE/build" 2>&1)
+          code=$?
+          set -e
+          echo "$LOG"
+          test "$code" -eq 0
+          echo "$LOG" | grep -q "PGS2SRTKit"
+          echo "$LOG" | grep -qi "resolved source packages"
+          if echo "$LOG" | grep -q "Missing package product"; then
+            echo "Package products did not bind"
+            exit 1
+          fi
+
+      - name: Build Debug app
+        run: |
+          set -euo pipefail
+          rm -rf "$GITHUB_WORKSPACE/build-debug"
+          xcodebuild \
+            -project App/PGS2SRT.xcodeproj \
+            -scheme PGS2SRT \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$GITHUB_WORKSPACE/build-debug" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          BIN="$GITHUB_WORKSPACE/build-debug/Build/Products/Debug/PGS2SRT.app/Contents/MacOS/PGS2SRT"
+          if [ ! -f "$BIN" ]; then
+            BIN="$(find "$GITHUB_WORKSPACE/build-debug" -type f -path '*/Debug/PGS2SRT.app/Contents/MacOS/PGS2SRT' | head -1)"
+          fi
+          test -f "$BIN"
+          lipo -info "$BIN"
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "Debug architectures: $ARCHS"
+          echo "$ARCHS" | grep -qw arm64
+          if echo "$ARCHS" | grep -qw x86_64; then
+            echo "Debug My Mac build included Intel. ONLY_ACTIVE_ARCH should keep it to arm64."
+            exit 1
+          fi
+          MOD="$(find "$GITHUB_WORKSPACE/build-debug" -path '*PGSCore.swiftmodule/arm64-apple-macos.swiftmodule')"
+          test -n "$MOD"
+          INTEL="$(find "$GITHUB_WORKSPACE/build-debug" -path '*PGSCore.swiftmodule/*x86_64*' || true)"
+          if [ -n "$INTEL" ]; then
+            echo "Debug PGSCore module was built for a second architecture"
+            exit 1
+          fi
 
       - name: Build universal app
         run: |
           xcodebuild \
-            -project PGS2SRT.xcodeproj \
+            -project App/PGS2SRT.xcodeproj \
             -scheme PGS2SRT \
             -configuration Release \
             -destination 'generic/platform=macOS' \
@@ -104,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild \
-            -project PGS2SRT.xcodeproj \
+            -project App/PGS2SRT.xcodeproj \
             -scheme pgs2srt \
             -configuration Release \
             -destination 'generic/platform=macOS' \
