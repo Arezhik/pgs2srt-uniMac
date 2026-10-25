@@ -160,28 +160,42 @@ final class AppModel: ObservableObject {
 
 /// Receives files opened from the Dock or from Finder's Open With.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let lock = NSLock()
-    private static var deliver: (([URL]) -> Void)?
-    private static var pending: [URL] = []
+    /// Files that arrive before the window exists, plus the handler that takes later ones.
+    /// The lock is why this shared state is safe to touch from the Dock callback.
+    private final class Inbox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var deliver: (([URL]) -> Void)?
+        private var pending: [URL] = []
+
+        func accept(_ urls: [URL]) {
+            lock.lock()
+            let deliver = self.deliver
+            if deliver == nil {
+                pending.append(contentsOf: urls)
+            }
+            lock.unlock()
+            deliver?(urls)
+        }
+
+        func setDeliver(_ deliver: @escaping ([URL]) -> Void) -> [URL] {
+            lock.lock()
+            self.deliver = deliver
+            let urls = pending
+            pending = []
+            lock.unlock()
+            return urls
+        }
+    }
+
+    private static let inbox = Inbox()
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        AppDelegate.lock.lock()
-        let deliver = AppDelegate.deliver
-        if deliver == nil {
-            AppDelegate.pending.append(contentsOf: urls)
-        }
-        AppDelegate.lock.unlock()
-        deliver?(urls)
+        AppDelegate.inbox.accept(urls)
     }
 
     /// Installs the handler and returns files that arrived before the window existed.
     static func setDeliver(_ deliver: @escaping ([URL]) -> Void) -> [URL] {
-        lock.lock()
-        self.deliver = deliver
-        let urls = pending
-        pending = []
-        lock.unlock()
-        return urls
+        inbox.setDeliver(deliver)
     }
 }
 

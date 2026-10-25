@@ -152,7 +152,7 @@ struct ContentView: View {
         return true
     }
 
-    private static func loadURL(from provider: NSItemProvider) async -> URL? {
+    private nonisolated static func loadURL(from provider: NSItemProvider) async -> URL? {
         await withCheckedContinuation { continuation in
             let once = ResumeOnce()
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
@@ -163,7 +163,8 @@ struct ContentView: View {
         }
     }
 
-    private static func url(from item: NSSecureCoding?) -> URL? {
+    /// Pure path parsing. The drop callback is not on the main actor.
+    private nonisolated static func url(from item: NSSecureCoding?) -> URL? {
         if let url = item as? URL { return url }
         if let data = item as? Data {
             if let url = URL(dataRepresentation: data, relativeTo: nil) { return url }
@@ -177,7 +178,7 @@ struct ContentView: View {
         return nil
     }
 
-    private static func url(fromPathOrFileURL string: String) -> URL? {
+    private nonisolated static func url(fromPathOrFileURL string: String) -> URL? {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("file:") { return URL(string: trimmed) }
         if trimmed.isEmpty { return nil }
