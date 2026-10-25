@@ -37,8 +37,21 @@ jobs:
           test "$code" -eq 1
           echo "$stderr" | grep -q "only runs on macOS"
 
+  macos-tests:
+    name: macOS tests
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Test
+        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
   macos:
     name: macOS universal app
+    # Xcode 27 matches the Mac where Debug failed. The hosted macOS 27 image
+    # throws nilError from VNRecognizeTextRequest, so the Vision tests stay on
+    # macos-latest. This job checks the app build.
     runs-on: xcode-27
     steps:
       - name: Check out
@@ -46,9 +59,6 @@ jobs:
 
       - name: Xcode version
         run: xcodebuild -version
-
-      - name: Test
-        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
 
       - name: Resolve local package
         run: |
