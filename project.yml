@@ -46,6 +46,8 @@ targets:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
         SWIFT_EMIT_LOC_STRINGS: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
         ENABLE_PREVIEWS: YES
         MACOSX_DEPLOYMENT_TARGET: "13.0"
     scheme:
