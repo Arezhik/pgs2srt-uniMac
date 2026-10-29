@@ -179,6 +179,10 @@ public final class ConversionQueue {
     private var reserved: Set<String> = []
     private var batch = BatchOutcome.zero
     private var batchOpen = false
+    /// Replace or Skip for later files in this batch. Cleared when the batch ends.
+    private var rememberedOverwrite: RememberedOverwrite?
+    /// Asks before Overwrite replaces a file. Nil replaces without asking, for tests and tools.
+    public var confirmReplace: (@MainActor (String) async -> OverwriteAnswer)?
 
     public init(preferences: ConversionPreferences = .default, services: ConversionServices) {
         self.storedPreferences = preferences.normalized
@@ -268,6 +272,7 @@ public final class ConversionQueue {
             batch = .zero
             batchOpen = true
             reserved.removeAll()
+            rememberedOverwrite = nil
         }
     }
 
@@ -319,17 +324,49 @@ public final class ConversionQueue {
         }
         let source = items[index].sourcePath
         let prefs = preferences
-        let destination = SRTOutputPath.plan(
+        let planned = SRTOutputPath.plan(
             sourcePath: source,
             preferences: prefs,
             fileExists: services.fileExists,
             directoryExists: services.directoryExists,
             reserved: reserved
         )
+        let destination: OutputDestination
+        switch OverwriteConfirmation.resolve(
+            planned: planned,
+            setting: prefs.existingFile,
+            fileExists: services.fileExists,
+            remembered: rememberedOverwrite
+        ) {
+        case let .ask(path):
+            let answer = await askToReplace(path)
+            if !isStillWaiting(id) {
+                return
+            }
+            if Task.isCancelled {
+                setStatus(id, .cancelled)
+                return
+            }
+            if let remembered = OverwriteConfirmation.remember(answer) {
+                rememberedOverwrite = remembered
+            }
+            switch answer {
+            case .replace:
+                destination = .write(path)
+            case .skip:
+                destination = .skipBecauseExists(path)
+            case .cancel:
+                setStatus(id, .cancelled)
+                return
+            }
+        case let .ready(output):
+            destination = output
+        }
         switch destination {
         case let .write(path):
+            guard let current = items.firstIndex(where: { $0.id == id }) else { return }
             reserved.insert(path)
-            items[index].status = .converting(completed: 0, total: 0)
+            items[current].status = .converting(completed: 0, total: 0)
             publish()
             await convert(id: id, source: source, path: path, preferences: prefs)
         case .skipBecauseExists, .skipBecauseReserved:
@@ -337,6 +374,18 @@ public final class ConversionQueue {
         case let .reject(message):
             setStatus(id, .failed(message))
         }
+    }
+
+    private func isStillWaiting(_ id: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        if case .waiting = items[index].status { return true }
+        return false
+    }
+
+    /// Asks only when a callback is installed. Otherwise Overwrite replaces the file.
+    private func askToReplace(_ path: String) async -> OverwriteAnswer {
+        guard let confirmReplace else { return .replace(applyToAll: false) }
+        return await confirmReplace(path)
     }
 
     /// Reading, decoding, recognition, and disk access run in a child task so the
