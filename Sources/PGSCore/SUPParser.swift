@@ -81,7 +81,10 @@ struct DisplaySet {
 }
 
 enum SUPParser {
-    static func parse(_ data: Data) throws -> [DisplaySet] {
+    static func parse(
+        _ data: Data,
+        cancellationCheck: @Sendable () throws -> Void = { try Task.checkCancellation() }
+    ) throws -> [DisplaySet] {
         if data.isEmpty {
             throw PGSError.emptyInput
         }
@@ -91,6 +94,7 @@ enum SUPParser {
         var current: PartialDisplaySet?
 
         while !cursor.isEmpty {
+            try cancellationCheck()
             let headerOffset = cursor.fileOffset
             if cursor.remaining < SegmentKind.headerLength {
                 throw PGSError.truncated(offset: headerOffset, context: "a PG segment header")

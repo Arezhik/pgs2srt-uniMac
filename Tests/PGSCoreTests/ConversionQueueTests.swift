@@ -1,5 +1,5 @@
 import XCTest
-import PGSCore
+@testable import PGSCore
 
 final class ConversionQueueTests: XCTestCase {
     func testWaitingBecomesConvertingThenDoneWithCueCounts() async {
@@ -374,6 +374,122 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(repaired.existingFile, .overwrite)
         XCTAssertEqual(defaults.integer(forKey: ConversionPreferenceKey.concurrency), 1)
     }
+
+    func testCancelDuringDecodeWritesNothing() async throws {
+        let file = makeShow(pts: 90_000, palette: [.limitedWhite(1)], objects: [singlePixelObject()])
+        let script = Script(bytes: ["/films/Movie.sup": file])
+        let pause = DecodePause()
+        defer { pause.end() }
+        let recognizer = CallCounter()
+        let queue = await makeQueue(script: script) { work in
+            var decoder = PGSDecoder()
+            decoder.cancellationCheck = { try pause.check() }
+            return try await TranscriptionPipeline().transcribeFile(
+                data: work.data,
+                decoder: decoder,
+                recognizer: recognizer
+            )
+        }
+        await queue.add(paths: ["/films/Movie.sup"])
+        let insideDecode = await pause.waitUntilBlocked()
+        XCTAssertTrue(insideDecode)
+        let id = await queue.items[0].id
+        await queue.cancel(id: id)
+        let cancelled = await waitUntil(queue) { queue in
+            queue.items.first?.status == .cancelled
+        }
+        XCTAssertTrue(cancelled)
+        XCTAssertTrue(script.writes.isEmpty)
+        XCTAssertEqual(recognizer.count, 0)
+        let stillWorking = await queue.hasCancellableWork
+        XCTAssertFalse(stillWorking)
+    }
+
+    func testCancelAllDuringDecodeCancelsTheActiveFileAndTheWaitingOne() async {
+        let file = makeShow(pts: 90_000, palette: [.limitedWhite(1)], objects: [singlePixelObject()])
+        let script = Script(bytes: [
+            "/films/First.sup": file,
+            "/films/Second.sup": file
+        ])
+        let box = OutcomeBox()
+        let pause = DecodePause()
+        defer { pause.end() }
+        let recognizer = CallCounter()
+        let queue = await makeQueue(script: script) { work in
+            var decoder = PGSDecoder()
+            decoder.cancellationCheck = { try pause.check() }
+            return try await TranscriptionPipeline().transcribeFile(
+                data: work.data,
+                decoder: decoder,
+                recognizer: recognizer
+            )
+        }
+        await MainActor.run {
+            queue.onBatchFinished = { box.append($0) }
+        }
+        await queue.add(paths: ["/films/First.sup", "/films/Second.sup"])
+        let insideDecode = await pause.waitUntilBlocked()
+        XCTAssertTrue(insideDecode)
+        await queue.cancelAll()
+        let finished = await waitUntil(queue) { _ in box.outcomes.count == 1 }
+        XCTAssertTrue(finished)
+        let items = await queue.items
+        XCTAssertEqual(items.map(\.status), [.cancelled, .cancelled])
+        XCTAssertEqual(box.outcomes, [BatchOutcome(done: 0, failed: 0, cancelled: 2, skipped: 0)])
+        XCTAssertTrue(script.writes.isEmpty)
+        XCTAssertEqual(recognizer.count, 0)
+    }
+
+    func testDecodeStopsWhenTheTaskIsAlreadyCancelled() async {
+        let file = makeShow(pts: 90_000, palette: [.limitedWhite(1)], objects: [singlePixelObject()])
+        let hold = TaskHold()
+        let recognizer = CallCounter()
+        let task = Task {
+            await hold.park()
+            return try await TranscriptionPipeline().transcribeFile(data: file, recognizer: recognizer)
+        }
+        let parked = await hold.waitUntilParked()
+        XCTAssertTrue(parked)
+        task.cancel()
+        hold.release()
+        do {
+            _ = try await task.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+        XCTAssertEqual(recognizer.count, 0)
+    }
+
+    func testSourceFileReadMatchesTheBytesAndStopsWhenCancelled() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pgs2srt-read-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("movie.sup")
+        let payload = Data((0..<64).map { UInt8($0) })
+        try payload.write(to: url)
+        let read = try SourceFileBytes.read(url.path)
+        XCTAssertEqual(read, payload)
+
+        let hold = TaskHold()
+        let task = Task {
+            await hold.park()
+            return try SourceFileBytes.read(url.path)
+        }
+        let parked = await hold.waitUntilParked()
+        XCTAssertTrue(parked)
+        task.cancel()
+        hold.release()
+        do {
+            _ = try await task.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("unexpected error \(error)")
+        }
+    }
 }
 
 private func makeQueue(
@@ -595,5 +711,124 @@ private final class Gate: @unchecked Sendable {
         let waiter = waiters.removeValue(forKey: id)
         lock.unlock()
         waiter?.resume(throwing: error)
+    }
+}
+
+/// Counts recognizer calls. A cancelled decode should stay at zero.
+private final class CallCounter: SubtitleRecognizing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func recognize(image _: SubtitleImage, languages _: [String]) async throws -> OCRResult {
+        note()
+        return OCRResult(text: "should not run")
+    }
+
+    private func note() {
+        lock.lock()
+        calls += 1
+        lock.unlock()
+    }
+}
+
+/// Lets the first two decoder checks through, then waits until the task is cancelled.
+/// That is inside the segment loop, after parsing has started.
+private final class DecodePause: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var calls = 0
+    private var blocked = false
+    private var release = false
+
+    func check() throws {
+        condition.lock()
+        calls += 1
+        let shouldBlock = calls >= 3
+        if shouldBlock {
+            blocked = true
+            condition.broadcast()
+        }
+        while shouldBlock && !release && !Task.isCancelled {
+            _ = condition.wait(until: Date().addingTimeInterval(0.05))
+        }
+        let stop = release || Task.isCancelled
+        condition.unlock()
+        if stop {
+            try Task.checkCancellation()
+            throw CancellationError()
+        }
+    }
+
+    func waitUntilBlocked(timeoutSeconds: Double = 2) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if isBlocked() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return false
+    }
+
+    private func isBlocked() -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return blocked
+    }
+
+    func end() {
+        condition.lock()
+        release = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+/// Suspends a task before the work under test, so the test can cancel it first.
+private final class TaskHold: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var parked = false
+    private var released = false
+
+    func park() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            self.lock.lock()
+            if self.released {
+                self.lock.unlock()
+                continuation.resume()
+                return
+            }
+            self.continuation = continuation
+            self.parked = true
+            self.lock.unlock()
+        }
+    }
+
+    func waitUntilParked(timeoutSeconds: Double = 2) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if isParked() { return true }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return false
+    }
+
+    private func isParked() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return parked
+    }
+
+    func release() {
+        lock.lock()
+        released = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume()
     }
 }

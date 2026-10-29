@@ -10,12 +10,16 @@ import Foundation
 struct DisplaySetComposer {
     var colorMatrix: ColorMatrix?
 
-    func compose(_ sets: [DisplaySet]) throws -> [SubtitleCue] {
+    func compose(
+        _ sets: [DisplaySet],
+        cancellationCheck: @Sendable () throws -> Void = { try Task.checkCancellation() }
+    ) throws -> [SubtitleCue] {
         var epoch = Epoch()
         var open: OpenCue?
         var cues: [SubtitleCue] = []
 
         for set in sets {
+            try cancellationCheck()
             if set.pcs.state == .epochStart, let current = open {
                 cues.append(try close(current, at: set.pts, reason: .epochStart))
                 open = nil
