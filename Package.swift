@@ -2,7 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "PGS2SRT",
+    // Not "PGS2SRT". That is the Xcode project's name, and the IDE drops the
+    // products when the package and the project share a name and a folder.
+    name: "PGS2SRTKit",
     platforms: [
         .macOS(.v13)
     ],
