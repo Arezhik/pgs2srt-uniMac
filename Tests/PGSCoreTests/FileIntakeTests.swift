@@ -33,10 +33,30 @@ final class FileIntakeTests: XCTestCase {
         let empty = FileIntake.collect(paths: ["/empty/"], listing: listing.listing)
         XCTAssertEqual(empty.supPaths, [])
         XCTAssertEqual(empty.notices, [.noSubtitles(folderName: "empty")])
+        XCTAssertEqual(empty.notices[0].message, "No .sup files were found in empty.")
 
         let locked = FileIntake.collect(paths: ["/locked"], listing: listing.listing)
         XCTAssertEqual(locked.notices, [.unreadableFolder(folderName: "locked")])
         XCTAssertEqual(locked.notices[0].message, "Could not look inside locked.")
+    }
+
+    func testDockAndOpenWithAcceptSupFilesAndFolders() throws {
+        let plistURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("App/Info.plist")
+        let data = try Data(contentsOf: plistURL)
+        let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        let types = plist?["CFBundleDocumentTypes"] as? [[String: Any]] ?? []
+        let contentTypes = types.flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
+        let extensions = types.flatMap { $0["CFBundleTypeExtensions"] as? [String] ?? [] }
+        XCTAssertTrue(contentTypes.contains("com.pgs2srt.pgs-subtitle"))
+        XCTAssertTrue(contentTypes.contains("public.folder"))
+        XCTAssertTrue(extensions.contains("sup"))
+        let folder = types.first { ($0["LSItemContentTypes"] as? [String])?.contains("public.folder") == true }
+        XCTAssertEqual(folder?["LSHandlerRank"] as? String, "Alternate")
+        XCTAssertEqual(folder?["CFBundleTypeRole"] as? String, "Viewer")
     }
 
     func testADirectoryLinkBackToItsParentDoesNotLoop() {

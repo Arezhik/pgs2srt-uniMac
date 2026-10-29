@@ -159,6 +159,7 @@ final class AppModel: ObservableObject {
 }
 
 /// Receives files opened from the Dock or from Finder's Open With.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Files that arrive before the window exists, plus the handler that takes later ones.
     /// The lock is why this shared state is safe to touch from the Dock callback.
@@ -191,11 +192,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         AppDelegate.inbox.accept(urls)
+        // The open event can also create a window. Drop the extra one after
+        // SwiftUI has had a turn to show it, and again once its view exists.
+        Task { @MainActor in
+            QueueWindow.keepOne()
+            await Task.yield()
+            QueueWindow.keepOne()
+        }
     }
 
     /// Installs the handler and returns files that arrived before the window existed.
     static func setDeliver(_ deliver: @escaping ([URL]) -> Void) -> [URL] {
         inbox.setDeliver(deliver)
+    }
+}
+
+/// The queue window, as opposed to Settings. Dock and Open With drops keep one of these.
+enum QueueWindow {
+    static let marker = NSUserInterfaceItemIdentifier("pgs2srt.queue")
+
+    @MainActor
+    static func keepOne() {
+        let windows = NSApp.windows
+            .filter { $0.identifier == marker && ($0.isVisible || $0.isMiniaturized) }
+            .sorted { $0.windowNumber < $1.windowNumber }
+        guard let keeper = windows.first else { return }
+        for extra in windows.dropFirst() {
+            extra.close()
+        }
+        if keeper.isMiniaturized {
+            keeper.deminiaturize(nil)
+        }
+        keeper.makeKeyAndOrderFront(nil)
+        if #available(macOS 14, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }
 

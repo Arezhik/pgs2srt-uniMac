@@ -150,6 +150,7 @@ jobs:
           test -f "$INFO"
           plutil -extract CFBundleIdentifier raw "$INFO" | grep -qx com.pgs2srt.PGS2SRT
           plutil -extract CFBundleDocumentTypes.0.CFBundleTypeExtensions.0 raw "$INFO" | grep -qx sup
+          plutil -extract CFBundleDocumentTypes.1.LSItemContentTypes.0 raw "$INFO" | grep -qx public.folder
           plutil -extract UTImportedTypeDeclarations.0.UTTypeIdentifier raw "$INFO" | grep -qx com.pgs2srt.pgs-subtitle
           ENTS="$(codesign -d --entitlements :- "$APP" 2>/dev/null || true)"
           if printf '%s' "$ENTS" | grep -q 'com.apple.security.app-sandbox'; then
