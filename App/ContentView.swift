@@ -36,7 +36,7 @@ struct ContentView: View {
                 Button("Open…") { model.showOpenPanel() }
                 Button("Cancel All") { model.cancelAll() }
                     .disabled(!model.hasCancellableWork)
-                Button("Settings…") { openSettings() }
+                SettingsToolbarButton()
             }
         }
     }
@@ -127,10 +127,6 @@ struct ContentView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
-
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         let fileProviders = providers.filter {
             $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
@@ -183,6 +179,34 @@ struct ContentView: View {
         if trimmed.hasPrefix("file:") { return URL(string: trimmed) }
         if trimmed.isEmpty { return nil }
         return URL(fileURLWithPath: trimmed)
+    }
+}
+
+/// The Settings toolbar button, drawn the same way as Open… and Cancel All.
+///
+/// macOS 14 and later open the Settings scene with `openSettings`. The older
+/// `showSettingsWindow:` action no longer does that, and macOS asks for
+/// SettingsLink instead. macOS 13 still opens Settings with that action.
+private struct SettingsToolbarButton: View {
+    var body: some View {
+        if #available(macOS 14.0, *) {
+            SettingsToolbarButtonMacOS14()
+        } else {
+            Button("Settings…") {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+private struct SettingsToolbarButtonMacOS14: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Button("Settings…") {
+            openSettings()
+        }
     }
 }
 
