@@ -179,6 +179,7 @@ public final class ConversionQueue {
     private var reserved: Set<String> = []
     private var batch = BatchOutcome.zero
     private var batchOpen = false
+    private var outputFolderOverrides: [String: String] = [:]
     /// Replace or Skip for later files in this batch. Cleared when the batch ends.
     private var rememberedOverwrite: RememberedOverwrite?
     /// Asks before Overwrite replaces a file. Nil replaces without asking, for tests and tools.
@@ -195,12 +196,21 @@ public final class ConversionQueue {
     }
 
     /// Add dropped or opened paths. Folders are searched for `.sup` files.
+    /// `outputFolder`, when set, is where this batch of files is written instead of the saved place.
     @discardableResult
-    public func add(paths: [String]) -> [IntakeNotice] {
+    public func add(paths: [String], outputFolder: String? = nil) -> [IntakeNotice] {
         let intake = FileIntake.collect(paths: paths, listing: services.listing)
         let fresh = intake.supPaths.filter { !isActive($0) }
         if !fresh.isEmpty {
             ensureBatch()
+        }
+        if let outputFolder {
+            let folder = outputFolder.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !folder.isEmpty {
+                for path in fresh {
+                    outputFolderOverrides[path] = folder
+                }
+            }
         }
         for path in fresh {
             items.append(ConversionItem(
@@ -236,6 +246,7 @@ public final class ConversionQueue {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         switch items[index].status {
         case .waiting:
+            outputFolderOverrides.removeValue(forKey: items[index].sourcePath)
             tasks[id]?.cancel()
             setStatus(id, .cancelled)
             finishBatchIfIdle()
@@ -319,11 +330,15 @@ public final class ConversionQueue {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard case .waiting = items[index].status else { return }
         if Task.isCancelled {
+            outputFolderOverrides.removeValue(forKey: items[index].sourcePath)
             setStatus(id, .cancelled)
             return
         }
         let source = items[index].sourcePath
-        let prefs = preferences
+        var prefs = preferences
+        if let folder = outputFolderOverrides.removeValue(forKey: source) {
+            prefs.placement = .folder(folder)
+        }
         let planned = SRTOutputPath.plan(
             sourcePath: source,
             preferences: prefs,

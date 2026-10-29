@@ -86,7 +86,48 @@ final class AppModel: ObservableObject {
 
     func reveal(_ item: ConversionItem) {
         guard case let .done(_, _, path) = item.status else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        switch RevealFollowUp.plan(
+            outputPath: path,
+            sourcePath: item.sourcePath,
+            fileExists: Self.regularFileExists,
+            directoryExists: Self.directoryExists
+        ) {
+        case let .showFile(path):
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        case let .alert(alert):
+            let source = item.sourcePath
+            Task { @MainActor in
+                let choice = await RevealPrompt.ask(alert)
+                self.followUp(choice, alert: alert, source: source)
+            }
+        }
+    }
+
+    private func followUp(_ choice: RevealButton, alert: RevealAlert, source: String) {
+        switch choice {
+        case .showFolder:
+            guard alert.folderExists, !alert.outputFolder.isEmpty else { return }
+            NSWorkspace.shared.open(URL(fileURLWithPath: alert.outputFolder, isDirectory: true))
+        case .convertAgain:
+            if let folder = RevealFollowUp.restoredFolder(for: alert) {
+                try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+                queue.add(paths: [source], outputFolder: folder)
+            } else {
+                add(paths: [source])
+            }
+        case .cancel, .ok:
+            break
+        }
+    }
+
+    private static func regularFileExists(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue
+    }
+
+    private static func directoryExists(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     func showOpenPanel() {
@@ -336,6 +377,70 @@ enum OverwritePrompt {
             default:
                 continuation.resume(returning: .skip(applyToAll: applyToAll))
             }
+        }
+    }
+}
+
+/// Sheet shown when Reveal in Finder cannot find the finished `.srt`.
+@MainActor
+enum RevealPrompt {
+    private static var active: Session?
+
+    static func ask(_ alert: RevealAlert) async -> RevealButton {
+        await withCheckedContinuation { (continuation: CheckedContinuation<RevealButton, Never>) in
+            let session = Session(alert: alert, continuation: continuation)
+            active = session
+            session.present()
+        }
+    }
+
+    @MainActor
+    private final class Session {
+        private let alertPlan: RevealAlert
+        private var continuation: CheckedContinuation<RevealButton, Never>?
+
+        init(alert: RevealAlert, continuation: CheckedContinuation<RevealButton, Never>) {
+            self.alertPlan = alert
+            self.continuation = continuation
+        }
+
+        func present() {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = alertPlan.title
+            alert.informativeText = alertPlan.detail
+            let buttons = alertPlan.buttons.isEmpty ? [RevealButton.ok] : alertPlan.buttons
+            for button in buttons {
+                alert.addButton(withTitle: button.title)
+            }
+            if let index = buttons.firstIndex(where: { $0 == .cancel || $0 == .ok }),
+               index > 0,
+               alert.buttons.indices.contains(index) {
+                alert.buttons[index].keyEquivalent = "\u{1b}"
+            }
+            let host = QueueWindow.frontmost() ?? NSApp.keyWindow ?? NSApp.mainWindow
+            if let host {
+                alert.beginSheetModal(for: host) { response in
+                    let response = response
+                    Task { @MainActor in
+                        RevealPrompt.active?.finish(response: response)
+                    }
+                }
+            } else {
+                finish(response: alert.runModal())
+            }
+        }
+
+        func finish(response: NSApplication.ModalResponse) {
+            guard let continuation else { return }
+            self.continuation = nil
+            if RevealPrompt.active === self {
+                RevealPrompt.active = nil
+            }
+            let buttons = alertPlan.buttons.isEmpty ? [RevealButton.ok] : alertPlan.buttons
+            let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+            let choice = buttons.indices.contains(index) ? buttons[index] : (buttons.last ?? .ok)
+            continuation.resume(returning: choice)
         }
     }
 }
