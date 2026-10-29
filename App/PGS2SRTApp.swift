@@ -9,12 +9,11 @@ struct PGS2SRTApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                // This window does not open another copy of itself for a file or folder.
-                .handlesExternalEvents(preferring: [], allowing: [])
+                // An open queue window takes the file, instead of a new window.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
-        // Reuse this window when Finder or the Dock opens a file. A new window
-        // is created only when none is open.
-        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        // When no window is open, this scene may create one for a Dock or Open With drop.
+        .handlesExternalEvents(matching: ["*"])
         .defaultSize(width: 720, height: 520)
         .commands {
             CommandGroup(after: .newItem) {
