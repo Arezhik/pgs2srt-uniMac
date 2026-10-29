@@ -47,6 +47,11 @@ final class AppModel: ObservableObject {
         items.contains(where: \.status.isActive)
     }
 
+    /// Done, failed, skipped, and cancelled rows can leave the list.
+    var canClearFinished: Bool {
+        items.contains(where: \.status.isRemovable)
+    }
+
     var settingsSummary: String {
         let language = LanguageChoices.label(for: preferences.language)
         let place: String
@@ -78,6 +83,14 @@ final class AppModel: ObservableObject {
 
     func cancelAll() {
         queue.cancelAll()
+    }
+
+    func remove(id: UUID) {
+        queue.remove(id: id)
+    }
+
+    func clearFinished() {
+        queue.clearFinished()
     }
 
     func dismissBanner(at index: Int) {

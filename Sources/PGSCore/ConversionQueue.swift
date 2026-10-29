@@ -39,6 +39,17 @@ public enum ConversionStatus: Equatable, Sendable {
             return false
         }
     }
+
+    /// Done, failed, cancelled, or skipped. Clear Finished and the row's remove
+    /// button can take these off the list. Waiting and converting stay until Cancel.
+    public var isRemovable: Bool {
+        switch self {
+        case .done, .failed, .cancelled, .skipped:
+            return true
+        case .waiting, .converting:
+            return false
+        }
+    }
 }
 
 /// Counts posted when a batch has nothing left running.
@@ -262,6 +273,36 @@ public final class ConversionQueue {
         for id in ids {
             cancel(id: id)
         }
+    }
+
+    /// Takes one finished row off the list. Waiting and converting rows are left
+    /// alone. This does not delete the `.sup` or the `.srt`.
+    @discardableResult
+    public func remove(id: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].status.isRemovable else { return false }
+        items.remove(at: index)
+        tasks[id] = nil
+        publish()
+        return true
+    }
+
+    /// Takes every done, failed, skipped, and cancelled row off the list.
+    /// Waiting and converting rows stay. Nothing on disk is deleted.
+    /// An empty list is the window's drop screen.
+    public func clearFinished() {
+        let removed = items.filter(\.status.isRemovable).map(\.id)
+        guard !removed.isEmpty else { return }
+        items.removeAll { $0.status.isRemovable }
+        for id in removed {
+            tasks[id] = nil
+        }
+        publish()
+    }
+
+    /// True when Clear Finished has at least one row it can take off the list.
+    public var canClearFinished: Bool {
+        items.contains(where: \.status.isRemovable)
     }
 
     public func dismissBanner(at index: Int) {

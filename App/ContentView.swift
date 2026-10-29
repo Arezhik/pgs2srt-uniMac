@@ -13,6 +13,7 @@ struct ContentView: View {
             if !model.banners.isEmpty {
                 bannerList
             }
+            // No rows left, including after Clear Finished or the last remove, is the drop screen.
             if model.items.isEmpty {
                 emptyDrop
             } else {
@@ -36,6 +37,8 @@ struct ContentView: View {
                 Button("Open…") { model.showOpenPanel() }
                 Button("Cancel All") { model.cancelAll() }
                     .disabled(!model.hasCancellableWork)
+                Button("Clear Finished") { model.clearFinished() }
+                    .disabled(!model.canClearFinished)
                 SettingsToolbarButton()
             }
         }
@@ -103,8 +106,12 @@ struct ContentView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(model.items) { item in
-                    QueueRow(item: item, onCancel: { model.cancel(id: item.id) }, onReveal: { model.reveal(item) })
-                        .padding(.horizontal, 8)
+                    QueueRow(
+                        item: item,
+                        onCancel: { model.cancel(id: item.id) },
+                        onReveal: { model.reveal(item) },
+                        onRemove: { model.remove(id: item.id) }
+                    )
                     Divider()
                 }
             }
@@ -185,7 +192,7 @@ struct ContentView: View {
     }
 }
 
-/// The Settings toolbar button, drawn the same way as Open… and Cancel All.
+/// The Settings toolbar button, drawn the same way as Open…, Cancel All, and Clear Finished.
 ///
 /// macOS 14 and later open the Settings scene with `openSettings`. The older
 /// `showSettingsWindow:` action no longer does that, and macOS asks for
@@ -252,6 +259,8 @@ private struct QueueRow: View {
     let item: ConversionItem
     var onCancel: () -> Void
     var onReveal: () -> Void
+    var onRemove: () -> Void
+    @State private var hovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -268,14 +277,30 @@ private struct QueueRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                actions
+                if item.status.isActive {
+                    Button("Cancel", action: onCancel)
+                        .controlSize(.small)
+                } else if case .done = item.status {
+                    Button("Reveal in Finder", action: onReveal)
+                        .controlSize(.small)
+                }
+                if item.status.isRemovable {
+                    removeButton
+                }
             }
             statusLine
             if case let .converting(completed, total) = item.status {
                 progress(completed: completed, total: total)
             }
         }
+        .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .background(hovered ? Color.primary.opacity(0.08) : Color.clear)
+        .background {
+            RowHover(setHovered: { hovered = $0 })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .contextMenu {
             if case .done = item.status {
@@ -287,15 +312,19 @@ private struct QueueRow: View {
         }
     }
 
-    @ViewBuilder
-    private var actions: some View {
-        if item.status.isActive {
-            Button("Cancel", action: onCancel)
-                .controlSize(.small)
-        } else if case .done = item.status {
-            Button("Reveal in Finder", action: onReveal)
-                .controlSize(.small)
+    /// The slot stays in the row while the pointer is elsewhere, so Reveal in Finder does not move.
+    private var removeButton: some View {
+        Button(action: onRemove) {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
         }
+        .buttonStyle(.plain)
+        .opacity(hovered ? 1 : 0)
+        .accessibilityLabel("Remove")
+        .accessibilityHidden(!hovered)
+        .allowsHitTesting(hovered)
     }
 
     private var statusLine: some View {
@@ -357,6 +386,81 @@ private struct QueueRow: View {
                     .controlSize(.small)
                     .accessibilityLabel("Reading")
             }
+        }
+    }
+}
+
+/// Pointer tracking for the row highlight and the remove button.
+///
+/// SwiftUI's `onHover` says the pointer left when it moves onto the button,
+/// which hides that button before it can be clicked. A tracking area follows
+/// the row's rectangle instead, including the button.
+private struct RowHover: NSViewRepresentable {
+    var setHovered: (Bool) -> Void
+
+    func makeNSView(context: Context) -> RowHoverView {
+        let view = RowHoverView()
+        view.setHovered = setHovered
+        return view
+    }
+
+    func updateNSView(_ view: RowHoverView, context: Context) {
+        view.setHovered = setHovered
+    }
+}
+
+private final class RowHoverView: NSView {
+    var setHovered: (Bool) -> Void = { _ in }
+    private var inside = false
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+        syncFromPointer(async: true)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        setInside(true, async: false)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setInside(false, async: false)
+    }
+
+    /// Scrolling moves the row under a still pointer, so check again after layout.
+    /// The callback waits a turn so it does not change SwiftUI state during a view update.
+    private func syncFromPointer(async: Bool) {
+        guard let window, bounds.width > 0, bounds.height > 0 else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        setInside(bounds.contains(point), async: async)
+    }
+
+    private func setInside(_ now: Bool, async: Bool) {
+        guard now != inside else { return }
+        inside = now
+        if async {
+            let setHovered = self.setHovered
+            DispatchQueue.main.async {
+                setHovered(now)
+            }
+        } else {
+            setHovered(now)
         }
     }
 }
