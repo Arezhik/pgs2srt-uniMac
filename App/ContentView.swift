@@ -39,6 +39,9 @@ struct ContentView: View {
                 SettingsToolbarButton()
             }
         }
+        .background {
+            QueueWindowMarker().allowsHitTesting(false)
+        }
     }
 
     private var header: some View {
@@ -207,6 +210,28 @@ private struct SettingsToolbarButtonMacOS14: View {
         Button("Settings…") {
             openSettings()
         }
+    }
+}
+
+/// Tags the queue window so a Dock or Open With drop can tell it from Settings.
+private struct QueueWindowMarker: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        QueueWindowClaim()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? QueueWindowClaim)?.claim()
+    }
+}
+
+private final class QueueWindowClaim: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        claim()
+    }
+
+    func claim() {
+        window?.identifier = QueueWindow.marker
     }
 }
 

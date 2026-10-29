@@ -25,10 +25,10 @@ Dropping an `.mkv` does not convert it. The list says **MKV support is coming.**
 
 ### Dock icon and Open With
 
-The app declares itself as a reader of `.sup` files.
+The app declares itself as a reader of `.sup` files and of folders.
 
-- Drag a `.sup` onto the PGS2SRT icon in the Dock. It is added to the queue, even if the app was not already running.
-- In Finder, right-click a `.sup`, choose **Open With → PGS2SRT**. If PGS2SRT is not listed yet, launch the app once, or move it to the Applications folder, and try again.
+- Drag a `.sup`, or a folder of them, onto the PGS2SRT icon in the Dock. It is added to the queue. If the window is already open, the files join that window and a second window does not open. A window opens only when none is open. A folder is searched the same way as a folder dropped on the window, including folders inside it. An empty folder shows a note that no `.sup` files were found.
+- In Finder, right-click a `.sup`, choose **Open With → PGS2SRT**. If PGS2SRT is not listed yet, launch the app once, or move it to the Applications folder, and try again. Opening a file this way also uses the window that is already open.
 
 ### Settings
 

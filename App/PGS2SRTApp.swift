@@ -9,7 +9,12 @@ struct PGS2SRTApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                // This window does not open another copy of itself for a file or folder.
+                .handlesExternalEvents(preferring: [], allowing: [])
         }
+        // Reuse this window when Finder or the Dock opens a file. A new window
+        // is created only when none is open.
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         .defaultSize(width: 720, height: 520)
         .commands {
             CommandGroup(after: .newItem) {
