@@ -130,7 +130,7 @@ final class AppModel: ObservableObject {
                 let url = URL(fileURLWithPath: path)
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                return try Data(contentsOf: url)
+                return try SourceFileBytes.read(path)
             },
             write: { path, text in
                 let url = URL(fileURLWithPath: path)

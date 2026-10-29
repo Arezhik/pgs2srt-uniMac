@@ -127,16 +127,27 @@ public struct SubtitleCue: Equatable, Sendable {
 }
 
 /// Reads a .sup file into timed subtitle images. No OCR.
+///
+/// A cancelled task stops between segments and between pictures. The check is
+/// a flag read, so a conversion that is not cancelled does the same work as before.
 public struct PGSDecoder: Sendable {
     /// When nil, BT.709 is used for video heights above 576 and BT.601 otherwise.
     public var colorMatrix: ColorMatrix?
+    /// Called before decoding and between segments and pictures.
+    /// The default stops when the current task is cancelled.
+    var cancellationCheck: @Sendable () throws -> Void
 
     public init(colorMatrix: ColorMatrix? = nil) {
         self.colorMatrix = colorMatrix
+        self.cancellationCheck = { try Task.checkCancellation() }
     }
 
     public func decode(_ data: Data) throws -> [SubtitleCue] {
-        let sets = try SUPParser.parse(data)
-        return try DisplaySetComposer(colorMatrix: colorMatrix).compose(sets)
+        try cancellationCheck()
+        let sets = try SUPParser.parse(data, cancellationCheck: cancellationCheck)
+        return try DisplaySetComposer(colorMatrix: colorMatrix).compose(
+            sets,
+            cancellationCheck: cancellationCheck
+        )
     }
 }

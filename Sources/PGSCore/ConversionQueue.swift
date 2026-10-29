@@ -120,7 +120,7 @@ public struct ConversionServices: Sendable {
     ) -> ConversionServices {
         return ConversionServices(
             read: { path in
-                try Data(contentsOf: URL(fileURLWithPath: path))
+                try SourceFileBytes.read(path)
             },
             write: { path, text in
                 try text.write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
@@ -339,8 +339,8 @@ public final class ConversionQueue {
         }
     }
 
-    /// Recognition and disk access run in a child task so the main actor stays free
-    /// and cancelling the row cancels that work.
+    /// Reading, decoding, recognition, and disk access run in a child task so the
+    /// main actor stays free and cancelling the row cancels that work.
     private func convert(
         id: UUID,
         source: String,

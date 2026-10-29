@@ -91,6 +91,7 @@ public struct TranscriptionPipeline: Sendable {
     }
 
     /// Decode a .sup file, recognize every cue, and assemble the SRT text.
+    /// A cancelled task stops during decoding, before any cue is recognized.
     public func transcribeFile(
         data: Data,
         decoder: PGSDecoder = PGSDecoder(),
