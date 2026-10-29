@@ -35,7 +35,7 @@ The app declares itself as a reader of `.sup` files and of folders.
 Choose **PGS2SRT → Settings…** (or the Settings… button). The choices are remembered on this Mac.
 
 - **Save the .srt file.** Next to the source file, or in one folder you choose.
-- **If the .srt file already exists.** Overwrite it, add a number (`Movie 2.srt`, `Movie 3.srt`, …), or skip that file. Two files in one batch that would both be named `Movie.srt` get separate names, so one does not erase the other.
+- **If the .srt file already exists.** Overwrite it, add a number (`Movie 2.srt`, `Movie 3.srt`, …), or skip that file. Overwrite is the default, and it asks before replacing a file that is already there. Replace erases that file. Skip leaves it alone. Apply to all uses that answer for the rest of the files you just dropped, so a folder does not ask once per file. Add a number and Skip do not ask. Two files in one batch that would both be named `Movie.srt` get separate names, so one does not erase the other.
 - **Language.** English is the default. This is the language Apple Vision looks for.
 - **Pictures to read at once.** Files are converted one at a time, so the progress count stays easy to read. This number is how many pictures inside the current file are read together. The default is 4.
 - **Experimental italics.** Off by default. Turn it on only if you want the app to guess which lines lean and wrap those words in `<i>` tags. On a real Blu-ray that guess often marks ordinary upright dialogue, so leave it off unless you want to try it. It is the same switch as `--italics` on the command line.

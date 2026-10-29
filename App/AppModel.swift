@@ -28,6 +28,9 @@ final class AppModel: ObservableObject {
         queue.onBatchFinished = { outcome in
             BatchNotifier.announce(outcome)
         }
+        queue.confirmReplace = { path in
+            await OverwritePrompt.ask(outputPath: path)
+        }
         AppModel.shared = self
         let pending = AppDelegate.setDeliver { urls in
             let urls = urls
@@ -228,6 +231,111 @@ enum QueueWindow {
             NSApp.activate()
         } else {
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @MainActor
+    static func frontmost() -> NSWindow? {
+        let windows = NSApp.windows.filter { $0.identifier == marker && ($0.isVisible || $0.isMiniaturized) }
+        return windows.first { $0.isKeyWindow } ?? windows.first
+    }
+}
+
+/// Sheet that asks before Overwrite replaces an existing `.srt`.
+@MainActor
+enum OverwritePrompt {
+    private static var active: Session?
+
+    static func ask(outputPath: String) async -> OverwriteAnswer {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<OverwriteAnswer, Never>) in
+                let session = Session(continuation: continuation)
+                active = session
+                session.present(outputPath: outputPath)
+            }
+        } onCancel: {
+            Task { @MainActor in
+                active?.cancel()
+            }
+        }
+    }
+
+    @MainActor
+    private final class Session {
+        private var continuation: CheckedContinuation<OverwriteAnswer, Never>?
+        private var cancelled = false
+        private var alert: NSAlert?
+        private var host: NSWindow?
+
+        init(continuation: CheckedContinuation<OverwriteAnswer, Never>) {
+            self.continuation = continuation
+        }
+
+        func present(outputPath: String) {
+            if cancelled {
+                finish(response: .abort)
+                return
+            }
+            let name = (outputPath as NSString).lastPathComponent
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "“\(name)” already exists."
+            let folder = (outputPath as NSString).deletingLastPathComponent
+            if folder.isEmpty {
+                alert.informativeText = "Replacing it erases the subtitle file that is already there. Skip leaves that file alone."
+            } else {
+                alert.informativeText = "It is in \(folder). Replacing it erases the subtitle file that is already there. Skip leaves that file alone."
+            }
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Skip")
+            if alert.buttons.count > 1 {
+                alert.buttons[1].keyEquivalent = "\u{1b}"
+            }
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = "Apply to all"
+            alert.suppressionButton?.state = .off
+            self.alert = alert
+            let host = QueueWindow.frontmost() ?? NSApp.keyWindow ?? NSApp.mainWindow
+            self.host = host
+            if let host {
+                alert.beginSheetModal(for: host) { response in
+                    let response = response
+                    Task { @MainActor in
+                        OverwritePrompt.active?.finish(response: response)
+                    }
+                }
+            } else {
+                let response = alert.runModal()
+                finish(response: response)
+            }
+        }
+
+        func cancel() {
+            cancelled = true
+            if let host, let sheet = alert?.window, host.attachedSheet === sheet {
+                host.endSheet(sheet)
+                return
+            }
+            finish(response: .abort)
+        }
+
+        func finish(response: NSApplication.ModalResponse) {
+            guard let continuation else { return }
+            self.continuation = nil
+            if OverwritePrompt.active === self {
+                OverwritePrompt.active = nil
+            }
+            if cancelled {
+                continuation.resume(returning: .cancel)
+                return
+            }
+            let applyToAll = alert?.suppressionButton?.state == .on
+            switch response {
+            case .alertFirstButtonReturn:
+                continuation.resume(returning: .replace(applyToAll: applyToAll))
+            default:
+                continuation.resume(returning: .skip(applyToAll: applyToAll))
+            }
         }
     }
 }

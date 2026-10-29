@@ -490,6 +490,200 @@ final class ConversionQueueTests: XCTestCase {
             XCTFail("unexpected error \(error)")
         }
     }
+
+    func testOverwriteAsksAndSkipLeavesTheExistingFile() async {
+        let script = Script(files: ["/films/Movie.srt"])
+        let asks = AnswerBox(answer: .skip(applyToAll: false))
+        let queue = await promptedQueue(script: script, asks: asks)
+        await queue.add(paths: ["/films/Movie.sup"])
+        let finished = await waitUntil(queue) { queue in
+            if case .skipped = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(asks.count, 1)
+        XCTAssertEqual(asks.paths, ["/films/Movie.srt"])
+        XCTAssertTrue(script.writes.isEmpty)
+        XCTAssertTrue(script.works.isEmpty)
+        let item = await queue.items[0]
+        XCTAssertEqual(item.status, .skipped("Movie.srt already exists, so this file was skipped."))
+    }
+
+    func testReplaceWritesAndApplyToAllDoesNotAskAgain() async {
+        let script = Script(files: ["/films/One.srt", "/films/Two.srt"])
+        let asks = AnswerBox(answer: .replace(applyToAll: true))
+        let queue = await promptedQueue(script: script, asks: asks)
+        await queue.add(paths: ["/films/One.sup", "/films/Two.sup"])
+        let finished = await waitUntil(queue) { queue in
+            queue.items.count == 2 && !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(asks.count, 1)
+        let items = await queue.items
+        XCTAssertEqual(
+            items.map(\.status),
+            [
+                .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/films/One.srt"),
+                .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/films/Two.srt")
+            ]
+        )
+        XCTAssertEqual(script.writes.map(\.0), ["/films/One.srt", "/films/Two.srt"])
+    }
+
+    func testSkipApplyToAllSkipsLaterExistingFilesAndStillWritesANewOne() async {
+        let script = Script(files: ["/films/One.srt", "/films/Two.srt"])
+        let asks = AnswerBox(answer: .skip(applyToAll: true))
+        let queue = await promptedQueue(script: script, asks: asks)
+        await queue.add(paths: ["/films/One.sup", "/films/Two.sup", "/films/Three.sup"])
+        let finished = await waitUntil(queue) { queue in
+            queue.items.count == 3 && !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(asks.count, 1)
+        let items = await queue.items
+        XCTAssertEqual(items[0].status, .skipped("One.srt already exists, so this file was skipped."))
+        XCTAssertEqual(items[1].status, .skipped("Two.srt already exists, so this file was skipped."))
+        XCTAssertEqual(items[2].status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/films/Three.srt"))
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Three.srt"])
+    }
+
+    func testWithoutApplyToAllEachExistingFileAsks() async {
+        let script = Script(files: ["/films/One.srt", "/films/Two.srt"])
+        let asks = AnswerBox(answer: .skip(applyToAll: false))
+        let queue = await promptedQueue(script: script, asks: asks)
+        await queue.add(paths: ["/films/One.sup", "/films/Two.sup"])
+        let finished = await waitUntil(queue) { queue in
+            queue.items.count == 2 && !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(asks.count, 2)
+        XCTAssertEqual(asks.paths, ["/films/One.srt", "/films/Two.srt"])
+        XCTAssertTrue(script.writes.isEmpty)
+    }
+
+    func testAddNumberAndSkipDoNotAsk() async {
+        let script = Script(files: ["/films/Movie.srt"])
+        let asks = AnswerBox(answer: .replace(applyToAll: false))
+        var preferences = ConversionPreferences.default
+        preferences.existingFile = .addNumber
+        let adding = await promptedQueue(script: script, asks: asks, preferences: preferences)
+        await adding.add(paths: ["/films/Movie.sup"])
+        let added = await waitUntil(adding) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(added)
+        XCTAssertEqual(asks.count, 0)
+        let addedItem = await adding.items[0]
+        XCTAssertEqual(addedItem.status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/films/Movie 2.srt"))
+
+        preferences.existingFile = .skip
+        let skipping = await promptedQueue(script: script, asks: asks, preferences: preferences)
+        await skipping.add(paths: ["/films/Movie.sup"])
+        let skipped = await waitUntil(skipping) { queue in
+            if case .skipped = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(skipped)
+        XCTAssertEqual(asks.count, 0)
+        XCTAssertTrue(script.writes.filter { $0.0 == "/films/Movie.srt" }.isEmpty)
+    }
+
+    func testANewBatchAsksAgainAfterApplyToAll() async {
+        let script = Script(files: ["/films/One.srt", "/films/Two.srt"])
+        let asks = AnswerBox(answer: .skip(applyToAll: true))
+        let box = OutcomeBox()
+        let queue = await promptedQueue(script: script, asks: asks)
+        await MainActor.run {
+            queue.onBatchFinished = { box.append($0) }
+        }
+        await queue.add(paths: ["/films/One.sup"])
+        let first = await waitUntil(queue) { _ in box.outcomes.count == 1 }
+        XCTAssertTrue(first)
+        XCTAssertEqual(asks.count, 1)
+        await queue.add(paths: ["/films/Two.sup"])
+        let second = await waitUntil(queue) { _ in box.outcomes.count == 2 }
+        XCTAssertTrue(second)
+        XCTAssertEqual(asks.count, 2)
+        XCTAssertEqual(asks.paths, ["/films/One.srt", "/films/Two.srt"])
+    }
+
+    func testCancelWhileThePromptIsUpDoesNotWrite() async {
+        let script = Script(files: ["/films/Movie.srt"])
+        let started = TaskHold()
+        defer { started.release() }
+        let queue = await makeQueue(script: script) { work in
+            script.record(work)
+            return sampleResult(cues: 1, failures: 0)
+        }
+        await MainActor.run {
+            queue.confirmReplace = { _ in
+                await started.park()
+                return .cancel
+            }
+        }
+        await queue.add(paths: ["/films/Movie.sup"])
+        let parked = await started.waitUntilParked()
+        XCTAssertTrue(parked)
+        let id = await queue.items[0].id
+        await queue.cancel(id: id)
+        started.release()
+        let cancelled = await waitUntil(queue) { queue in
+            queue.items.first?.status == .cancelled
+        }
+        XCTAssertTrue(cancelled)
+        XCTAssertTrue(script.writes.isEmpty)
+        XCTAssertTrue(script.works.isEmpty)
+    }
+}
+
+private func promptedQueue(
+    script: Script,
+    asks: AnswerBox,
+    preferences: ConversionPreferences = .default
+) async -> ConversionQueue {
+    let queue = await makeQueue(preferences: preferences, script: script) { work in
+        script.record(work)
+        return sampleResult(cues: 1, failures: 0)
+    }
+    await MainActor.run {
+        queue.confirmReplace = { path in
+            asks.next(path)
+        }
+    }
+    return queue
+}
+
+private final class AnswerBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: OverwriteAnswer
+    private var calls = 0
+    private var seen: [String] = []
+
+    init(answer: OverwriteAnswer) {
+        stored = answer
+    }
+
+    func next(_ path: String) -> OverwriteAnswer {
+        lock.lock()
+        calls += 1
+        seen.append(path)
+        let answer = stored
+        lock.unlock()
+        return answer
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    var paths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return seen
+    }
 }
 
 private func makeQueue(
