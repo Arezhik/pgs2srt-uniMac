@@ -260,6 +260,7 @@ enum OverwritePrompt {
         }
     }
 
+    @MainActor
     private final class Session {
         private var continuation: CheckedContinuation<OverwriteAnswer, Never>?
         private var cancelled = false
@@ -298,8 +299,9 @@ enum OverwritePrompt {
             self.host = host
             if let host {
                 alert.beginSheetModal(for: host) { response in
+                    let response = response
                     Task { @MainActor in
-                        self.finish(response: response)
+                        OverwritePrompt.active?.finish(response: response)
                     }
                 }
             } else {
