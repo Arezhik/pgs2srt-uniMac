@@ -651,6 +651,175 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(item?.status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/restored/Movie.srt"))
         XCTAssertEqual(script.writes.map(\.0), ["/restored/Movie.srt"])
     }
+
+    func testWhichRowsCanBeRemovedOrCleared() {
+        XCTAssertFalse(ConversionStatus.waiting.isRemovable)
+        XCTAssertFalse(ConversionStatus.converting(completed: 0, total: 0).isRemovable)
+        XCTAssertFalse(ConversionStatus.converting(completed: 3, total: 10).isRemovable)
+        XCTAssertTrue(ConversionStatus.done(cueCount: 2, unrecognizedCount: 0, outputPath: "/films/Movie.srt").isRemovable)
+        XCTAssertTrue(ConversionStatus.failed("The PGS file is empty.").isRemovable)
+        XCTAssertTrue(ConversionStatus.cancelled.isRemovable)
+        XCTAssertTrue(ConversionStatus.skipped("MKV support is coming.").isRemovable)
+    }
+
+    func testClearFinishedEnabledStateAndReturnToAnEmptyQueue() async {
+        let gate = Gate()
+        defer { gate.openAll() }
+        let script = Script()
+        let queue = await makeQueue(script: script) { _ in
+            try await gate.wait()
+            return sampleResult(cues: 2, failures: 0)
+        }
+
+        let emptyEnabled = await queue.canClearFinished
+        XCTAssertFalse(emptyEnabled)
+        await queue.clearFinished()
+        let emptyItems = await queue.items
+        XCTAssertTrue(emptyItems.isEmpty)
+
+        await queue.add(paths: ["/films/First.sup", "/films/Second.sup", "/films/Movie.mkv"])
+        let started = await waitUntil(queue) { queue in
+            if case .converting = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(started)
+
+        let whileRunning = await queue.items
+        XCTAssertEqual(whileRunning.map(\.name), ["First.sup", "Second.sup", "Movie.mkv"])
+        XCTAssertFalse(whileRunning[0].status.isRemovable)
+        XCTAssertFalse(whileRunning[1].status.isRemovable)
+        XCTAssertTrue(whileRunning[2].status.isRemovable)
+        let enabledForSkip = await queue.canClearFinished
+        let stillWorking = await queue.hasCancellableWork
+        XCTAssertTrue(enabledForSkip)
+        XCTAssertTrue(stillWorking)
+        let removedConverting = await queue.remove(id: whileRunning[0].id)
+        let removedWaiting = await queue.remove(id: whileRunning[1].id)
+        XCTAssertFalse(removedConverting)
+        XCTAssertFalse(removedWaiting)
+
+        await queue.clearFinished()
+        let kept = await queue.items
+        XCTAssertEqual(kept.map(\.name), ["First.sup", "Second.sup"])
+        let disabledWhileActive = await queue.canClearFinished
+        let stillCancellable = await queue.hasCancellableWork
+        XCTAssertFalse(disabledWhileActive)
+        XCTAssertTrue(stillCancellable)
+
+        gate.openAll()
+        let finished = await waitUntil(queue) { queue in
+            queue.items.count == 2 && !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(script.writes.map(\.0), ["/films/First.srt", "/films/Second.srt"])
+        XCTAssertTrue(script.fileExists("/films/First.srt"))
+        XCTAssertTrue(script.fileExists("/films/Second.srt"))
+        let enabledWhenDone = await queue.canClearFinished
+        XCTAssertTrue(enabledWhenDone)
+
+        await queue.clearFinished()
+        let cleared = await queue.items
+        XCTAssertTrue(cleared.isEmpty)
+        let disabledWhenEmpty = await queue.canClearFinished
+        XCTAssertFalse(disabledWhenEmpty)
+        XCTAssertEqual(script.writes.map(\.0), ["/films/First.srt", "/films/Second.srt"])
+        XCTAssertTrue(script.fileExists("/films/First.srt"))
+        XCTAssertTrue(script.fileExists("/films/Second.srt"))
+    }
+
+    func testRemoveAndClearFinishedDropTerminalRowsWithoutDeletingFiles() async {
+        let gate = Gate()
+        defer { gate.openAll() }
+        let script = Script()
+        let queue = await makeQueue(script: script) { _ in
+            let call = script.bump()
+            try await gate.wait()
+            if call == 2 {
+                throw PGSError.emptyInput
+            }
+            return sampleResult(cues: 4, failures: 0)
+        }
+        await queue.add(paths: [
+            "/films/Good.sup",
+            "/films/Stop.sup",
+            "/films/Bad.sup",
+            "/films/Movie.mkv"
+        ])
+        let started = await waitUntil(queue) { queue in
+            if case .converting = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(started)
+        let stopID = await queue.items[1].id
+        await queue.cancel(id: stopID)
+        gate.openAll()
+        let settled = await waitUntil(queue) { queue in
+            !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(settled)
+
+        let settledItems = await queue.items
+        XCTAssertEqual(settledItems.map(\.name), ["Good.sup", "Stop.sup", "Bad.sup", "Movie.mkv"])
+        XCTAssertEqual(
+            settledItems[0].status,
+            .done(cueCount: 4, unrecognizedCount: 0, outputPath: "/films/Good.srt")
+        )
+        XCTAssertEqual(settledItems[1].status, .cancelled)
+        XCTAssertEqual(settledItems[2].status, .failed("The PGS file is empty."))
+        XCTAssertEqual(settledItems[3].status, .skipped("MKV support is coming."))
+        XCTAssertTrue(settledItems.allSatisfy(\.status.isRemovable))
+        let enabled = await queue.canClearFinished
+        XCTAssertTrue(enabled)
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Good.srt"])
+        XCTAssertTrue(script.fileExists("/films/Good.srt"))
+
+        let removedUnknown = await queue.remove(id: UUID())
+        let removedFailed = await queue.remove(id: settledItems[2].id)
+        let removedFailedAgain = await queue.remove(id: settledItems[2].id)
+        XCTAssertFalse(removedUnknown)
+        XCTAssertTrue(removedFailed)
+        XCTAssertFalse(removedFailedAgain)
+        let afterOne = await queue.items
+        XCTAssertEqual(afterOne.map(\.name), ["Good.sup", "Stop.sup", "Movie.mkv"])
+        let stillEnabled = await queue.canClearFinished
+        XCTAssertTrue(stillEnabled)
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Good.srt"])
+
+        await queue.clearFinished()
+        let cleared = await queue.items
+        XCTAssertTrue(cleared.isEmpty)
+        let disabled = await queue.canClearFinished
+        XCTAssertFalse(disabled)
+        await queue.clearFinished()
+        let stillCleared = await queue.items
+        XCTAssertTrue(stillCleared.isEmpty)
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Good.srt"])
+        XCTAssertTrue(script.fileExists("/films/Good.srt"))
+    }
+
+    func testRemovingTheOnlyRowLeavesTheQueueEmpty() async {
+        let script = Script()
+        let queue = await makeQueue(script: script) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await queue.add(paths: ["/films/Only.sup"])
+        let finished = await waitUntil(queue) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        let enabled = await queue.canClearFinished
+        XCTAssertTrue(enabled)
+        let id = await queue.items[0].id
+        let removed = await queue.remove(id: id)
+        XCTAssertTrue(removed)
+        let left = await queue.items
+        XCTAssertTrue(left.isEmpty)
+        let disabled = await queue.canClearFinished
+        XCTAssertFalse(disabled)
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Only.srt"])
+        XCTAssertTrue(script.fileExists("/films/Only.srt"))
+    }
 }
 
 private func promptedQueue(

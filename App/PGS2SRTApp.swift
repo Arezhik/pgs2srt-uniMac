@@ -26,6 +26,11 @@ struct PGS2SRTApp: App {
                 }
                 .keyboardShortcut(".")
                 .disabled(!model.hasCancellableWork)
+                Button("Clear Finished") {
+                    model.clearFinished()
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(!model.canClearFinished)
             }
         }
 
