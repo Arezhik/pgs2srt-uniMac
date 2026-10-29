@@ -14,7 +14,7 @@ Minimum system: macOS 13 Ventura. Open the project in Xcode 27.
 2. Drop one or more `.sup` files onto the window. You can also drop a folder; the app looks through it, including folders inside it, and queues every `.sup` it finds.
 3. Or click **Open…**, or choose **File → Open…**.
 4. Each file shows in the list as Waiting, then Converting with a count such as `120/777`, then Done or Failed.
-5. When a file is Done, the list shows how many cues were written and, if any line could not be read, how many say `[OCR failed]`. **Reveal in Finder** selects the new `.srt`.
+5. When a file is Done, the list shows how many cues were written and, if any line could not be read, how many say `[OCR failed]`. **Reveal in Finder** selects the new `.srt`. If that file is missing, Reveal says so. It can show the folder, or convert the original again when that file is still there.
 6. **Cancel** stops that file. **Cancel All** stops the whole queue. A file that was cancelled is not saved as a half-written `.srt`.
 
 By default the `.srt` is written next to the `.sup`, with the same name: `Movie.sup` becomes `Movie.srt`.

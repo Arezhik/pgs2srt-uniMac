@@ -635,6 +635,22 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertTrue(script.writes.isEmpty)
         XCTAssertTrue(script.works.isEmpty)
     }
+
+    func testConvertAgainCanWriteBackIntoAChosenFolderAndStillAsk() async {
+        let script = Script(files: ["/restored/Movie.srt"], directories: ["/restored": []])
+        let asks = AnswerBox(answer: .replace(applyToAll: false))
+        let queue = await promptedQueue(script: script, asks: asks)
+        await queue.add(paths: ["/films/Movie.sup"], outputFolder: "/restored")
+        let finished = await waitUntil(queue) { queue in
+            if case .done = queue.items.last?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(asks.paths, ["/restored/Movie.srt"])
+        let item = await queue.items.last
+        XCTAssertEqual(item?.status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/restored/Movie.srt"))
+        XCTAssertEqual(script.writes.map(\.0), ["/restored/Movie.srt"])
+    }
 }
 
 private func promptedQueue(
