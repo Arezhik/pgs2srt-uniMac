@@ -130,18 +130,18 @@ final class CueNSTextView: NSTextView {
             coordinator?.parent.onRevert()
             return
         }
+        if event.modifierFlags.contains(.command), characters == "z" || characters == "Z" {
+            if event.modifierFlags.contains(.shift) {
+                coordinator?.parent.onRedo()
+            } else {
+                coordinator?.parent.onUndo()
+            }
+            return
+        }
         super.keyDown(with: event)
     }
 
     override func deleteToBeginningOfLine(_ sender: Any?) {
         coordinator?.parent.onDeleteCue()
-    }
-
-    override func undo(_ sender: Any?) {
-        coordinator?.parent.onUndo()
-    }
-
-    override func redo(_ sender: Any?) {
-        coordinator?.parent.onRedo()
     }
 }
