@@ -32,6 +32,11 @@ struct PGS2SRTApp: App {
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(!model.canClearFinished)
             }
+            CommandGroup(replacing: .help) {
+                Button("Export Debug Log…") {
+                    model.exportDebugLog()
+                }
+            }
         }
 
         Settings {
