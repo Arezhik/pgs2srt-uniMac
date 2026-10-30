@@ -16,12 +16,14 @@ public struct DebugLogLine: Equatable, Sendable {
     public var category: DebugLogCategory
     public var message: String
     public var isError: Bool
+    public var isWarning: Bool
 
-    public init(date: Date, category: DebugLogCategory, message: String, isError: Bool) {
+    public init(date: Date, category: DebugLogCategory, message: String, isError: Bool, isWarning: Bool = false) {
         self.date = date
         self.category = category
         self.message = message
         self.isError = isError
+        self.isWarning = isWarning
     }
 }
 
@@ -212,7 +214,14 @@ public enum DebugLogFormatting {
     }
 
     public static func line(_ entry: DebugLogLine, timeZone: TimeZone) -> String {
-        let level = entry.isError ? "error" : "info"
+        let level: String
+        if entry.isError {
+            level = "error"
+        } else if entry.isWarning {
+            level = "warning"
+        } else {
+            level = "info"
+        }
         return "\(stamp(entry.date, timeZone: timeZone)) [\(entry.category.rawValue)] \(level) \(entry.message)"
     }
 }
@@ -275,6 +284,7 @@ public final class DebugLog: @unchecked Sendable {
         _ category: DebugLogCategory,
         _ message: String,
         isError: Bool = false,
+        isWarning: Bool = false,
         date: Date = Date()
     ) {
         lock.lock()
@@ -285,7 +295,13 @@ public final class DebugLog: @unchecked Sendable {
         lock.unlock()
         guard store != nil || mirror != nil else { return }
         let redacted = PathRedaction.redact(message, homeDirectory: home)
-        let entry = DebugLogLine(date: date, category: category, message: redacted, isError: isError)
+        let entry = DebugLogLine(
+            date: date,
+            category: category,
+            message: redacted,
+            isError: isError,
+            isWarning: isWarning
+        )
         store?.append(DebugLogFormatting.line(entry, timeZone: zone))
         mirror?(entry)
     }

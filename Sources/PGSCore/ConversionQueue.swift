@@ -831,7 +831,14 @@ private enum TemporaryExtract {
     }
 
     static func remove(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
+        let name = url.lastPathComponent
+        do {
+            try FileManager.default.removeItem(at: url)
+            DebugLog.shared.record(.mkv, "Temp folder removed \(name)")
+        } catch {
+            let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            DebugLog.shared.record(.mkv, "Temp folder removal failed \(name): \(detail)", isWarning: true)
+        }
     }
 }
 

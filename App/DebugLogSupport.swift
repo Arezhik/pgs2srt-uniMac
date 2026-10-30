@@ -23,6 +23,8 @@ enum AppLog {
             if line.category != .error {
                 error.error("\(message, privacy: .public)")
             }
+        } else if line.isWarning {
+            logger(for: line.category).warning("\(message, privacy: .public)")
         } else {
             logger(for: line.category).info("\(message, privacy: .public)")
         }

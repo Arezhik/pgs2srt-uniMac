@@ -180,6 +180,30 @@ final class DebugLogTests: XCTestCase {
         XCTAssertFalse(text.contains("/Users/ada"))
     }
 
+    func testExportLineNamesTheDesktopFile() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let name = "PGS2SRT-debug-log-2026-10-30-170509.txt"
+        let log = DebugLog(homeDirectory: "/Users/ada", timeZone: TimeZone(secondsFromGMT: 0)!)
+        log.configure(directory: directory, homeDirectory: "/Users/ada", timeZone: TimeZone(secondsFromGMT: 0)!)
+        log.record(.lifecycle, "Exporting debug log to /Users/ada/Desktop/\(name)")
+        let text = log.recentText()
+        XCTAssertTrue(text.contains("[lifecycle] info Exporting debug log to ~/Desktop/\(name)"))
+        XCTAssertFalse(text.contains("/Users/ada"))
+        XCTAssertFalse(text.hasSuffix("Exporting debug log\n"))
+    }
+
+    func testAWarningIsMarkedInTheLog() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = DebugLog(homeDirectory: "/Users/ada")
+        log.configure(directory: directory, homeDirectory: "/Users/ada")
+        log.record(.mkv, "Temp folder removal failed PGS2SRT-abc: permission denied", isWarning: true)
+        let text = log.recentText()
+        XCTAssertTrue(text.contains("[mkv] warning Temp folder removal failed PGS2SRT-abc: permission denied"))
+        XCTAssertFalse(text.contains("[mkv] error"))
+    }
+
     func testRecognizedSubtitleTextStaysOutOfTheLog() async throws {
         let directory = temporaryDirectory()
         defer {

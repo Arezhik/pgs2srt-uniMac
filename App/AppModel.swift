@@ -56,13 +56,16 @@ final class AppModel: ObservableObject {
             let environment = await Task.detached(priority: .userInitiated) {
                 DebugMachine.environment(settings: settings)
             }.value
-            DebugLog.shared.record(.lifecycle, "Exporting debug log")
+            let name = DebugLogDocument.fileName(at: Date())
+            let destination = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Desktop", isDirectory: true)
+                .appendingPathComponent(name)
+            DebugLog.shared.record(.lifecycle, "Exporting debug log to \(destination.path)")
             let text = DebugLogDocument.document(
                 environment: environment,
                 logText: DebugLog.shared.recentText(),
                 homeDirectory: NSHomeDirectory()
             )
-            let name = DebugLogDocument.fileName(at: Date())
             DebugLogExporter.write(text: text, fileName: name)
         }
     }
