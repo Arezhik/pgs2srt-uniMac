@@ -1,0 +1,32 @@
+{
+  "tracks": [
+    {
+      "id": 3,
+      "type": "subtitles",
+      "codec": "HDMV PGS",
+      "properties": {
+        "codec_id": "S_HDMV/PGS",
+        "language": "jpn",
+        "language_ietf": "ja",
+        "number": 4,
+        "track_name": "Japanese",
+        "forced_track": false,
+        "default_track": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "subtitles",
+      "codec": "HDMV PGS",
+      "properties": {
+        "codec_id": "S_HDMV/PGS",
+        "language": "fre",
+        "language_ietf": "fr",
+        "number": 6,
+        "track_name": "French",
+        "forced_track": 0,
+        "default_track": 1
+      }
+    }
+  ]
+}

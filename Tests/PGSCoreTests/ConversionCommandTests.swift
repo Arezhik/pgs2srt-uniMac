@@ -27,6 +27,7 @@ final class ConversionCommandTests: XCTestCase {
         XCTAssertEqual(command.jobs, 2)
         XCTAssertFalse(command.italics)
         XCTAssertEqual(ConversionCommand.defaultOutputPath(for: "notes"), "notes.srt")
+        XCTAssertEqual(ConversionCommand.defaultOutputPath(for: "/films/Movie.mkv"), "/films/Movie.srt")
 
         let withItalics = try ConversionCommand.parse(["pgs2srt", "Movie.sup", "--italics"])
         guard case let .convert(italicCommand) = withItalics else {

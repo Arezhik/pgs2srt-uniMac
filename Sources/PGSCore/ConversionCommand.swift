@@ -94,11 +94,12 @@ public struct ConversionCommand: Equatable, Sendable {
         )
     }
 
-    /// `movie.sup` becomes `movie.srt` in the same directory. The path is not
-    /// looked up on disk, and a relative path stays relative.
+    /// `movie.sup` and `movie.mkv` become `movie.srt` in the same directory.
+    /// The path is not looked up on disk, and a relative path stays relative.
     public static func defaultOutputPath(for inputPath: String) -> String {
         let path = inputPath as NSString
-        if path.pathExtension.lowercased() == "sup" {
+        let ext = path.pathExtension.lowercased()
+        if ext == "sup" || ext == "mkv" {
             let base = path.deletingPathExtension as NSString
             return base.appendingPathExtension("srt") ?? (path.deletingPathExtension + ".srt")
         }

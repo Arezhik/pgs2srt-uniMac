@@ -7,6 +7,14 @@ final class OutputPathTests: XCTestCase {
             plan("/films/Movie.SUP", preferences: .default),
             .write("/films/Movie.srt")
         )
+        XCTAssertEqual(
+            plan("/films/Movie.mkv", preferences: .default),
+            .write("/films/Movie.srt")
+        )
+        XCTAssertEqual(
+            plan("/films/Movie.MKV", preferences: .default),
+            .write("/films/Movie.srt")
+        )
         let folder = ConversionPreferences(
             placement: .folder("/out"),
             language: "en-US",

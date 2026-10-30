@@ -19,6 +19,10 @@ let package = Package(
         .target(name: "VisionOCR", dependencies: ["PGSCore"]),
         .executableTarget(name: "pgsdump", dependencies: ["PGSCore"]),
         .executableTarget(name: "pgs2srt", dependencies: ["PGSCore", "VisionOCR"]),
-        .testTarget(name: "PGSCoreTests", dependencies: ["PGSCore", "VisionOCR"])
+        .testTarget(
+            name: "PGSCoreTests",
+            dependencies: ["PGSCore", "VisionOCR"],
+            exclude: ["Fixtures/mkv"]
+        )
     ]
 )

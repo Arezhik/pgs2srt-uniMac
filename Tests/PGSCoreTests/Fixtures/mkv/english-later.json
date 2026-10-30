@@ -1,0 +1,84 @@
+{
+  "identification_format_version": 19,
+  "file_name": "Movie.mkv",
+  "tracks": [
+    {
+      "codec": "AVC/H.264/MPEG-4p10",
+      "id": 0,
+      "properties": {
+        "codec_id": "V_MPEG4/ISO/AVC",
+        "default_track": true,
+        "language": "eng",
+        "language_ietf": "en",
+        "number": 1
+      },
+      "type": "video"
+    },
+    {
+      "codec": "AC-3",
+      "id": 1,
+      "properties": {
+        "codec_id": "A_AC3",
+        "default_track": true,
+        "language": "eng",
+        "language_ietf": "en",
+        "number": 2
+      },
+      "type": "audio"
+    },
+    {
+      "codec": "HDMV PGS",
+      "id": 2,
+      "properties": {
+        "codec_id": "S_HDMV/PGS",
+        "default_track": true,
+        "forced_track": true,
+        "language": "jpn",
+        "language_ietf": "ja",
+        "number": 3,
+        "track_name": "Japanese"
+      },
+      "type": "subtitles"
+    },
+    {
+      "codec": "SubRip/SRT",
+      "id": 3,
+      "properties": {
+        "codec_id": "S_TEXT/UTF8",
+        "language": "eng",
+        "language_ietf": "en",
+        "number": 4,
+        "track_name": "English text"
+      },
+      "type": "subtitles"
+    },
+    {
+      "codec": "HDMV PGS",
+      "id": 4,
+      "properties": {
+        "codec_id": "S_HDMV/PGS",
+        "default_track": false,
+        "forced_track": false,
+        "language": "und",
+        "language_ietf": "en",
+        "number": 5,
+        "track_name": "English"
+      },
+      "type": "subtitles"
+    },
+    {
+      "codec": "HDMV PGS",
+      "id": 6,
+      "properties": {
+        "codec_id": "S_HDMV/PGS",
+        "default_track": false,
+        "forced_track": false,
+        "language": "eng",
+        "language_ietf": "en-US",
+        "number": 7,
+        "track_name": "English SDH"
+      },
+      "type": "subtitles"
+    }
+  ]
+}

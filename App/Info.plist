@@ -32,6 +32,22 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Matroska Video</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.matroska.mkv</string>
+			</array>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>mkv</string>
+			</array>
+		</dict>
 	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
@@ -51,6 +67,26 @@
 				<array>
 					<string>sup</string>
 				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.matroska.mkv</string>
+			<key>UTTypeDescription</key>
+			<string>Matroska video</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.movie</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mkv</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>video/x-matroska</string>
 			</dict>
 		</dict>
 	</array>
