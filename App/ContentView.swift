@@ -5,6 +5,7 @@ import PGSCore
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @State private var targeted = false
 
     var body: some View {
@@ -45,6 +46,26 @@ struct ContentView: View {
         .background {
             QueueWindowMarker().allowsHitTesting(false)
         }
+        .onChange(of: model.reviewOpenRequest) { request in
+            guard let request else { return }
+            openWindow(id: "review", value: request)
+            model.reviewOpenRequest = nil
+        }
+        .focusedSceneValue(\.queueActions, QueueActions(
+            review: { reviewSelected(newWindow: false) },
+            reviewNewWindow: { reviewSelected(newWindow: true) },
+            canReview: canReviewSelected
+        ))
+    }
+
+    private var canReviewSelected: Bool {
+        guard let id = model.selectedItemID else { return false }
+        return model.reviewFile(for: id) != nil
+    }
+
+    private func reviewSelected(newWindow: Bool) {
+        guard let id = model.selectedItemID else { return }
+        model.requestReview(itemID: id, newWindow: newWindow)
     }
 
     private var header: some View {
@@ -106,18 +127,30 @@ struct ContentView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(model.items) { item in
-                    QueueRow(
-                        item: item,
-                        onCancel: { model.cancel(id: item.id) },
-                        onReveal: { model.reveal(item) },
-                        onRemove: { model.remove(id: item.id) }
-                    )
+                    queueRow(item)
                     Divider()
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
         }
+    }
+
+    private func queueRow(_ item: ConversionItem) -> some View {
+        let _ = model.reviewRevision
+        QueueRow(
+            item: item,
+            selected: model.selectedItemID == item.id,
+            summary: model.summary(for: item),
+            onCancel: { model.cancel(id: item.id) },
+            onReview: { newWindow in
+                model.selectedItemID = item.id
+                model.requestReview(itemID: item.id, newWindow: newWindow)
+            },
+            onReveal: { model.reveal(item) },
+            onRemove: { model.remove(id: item.id) },
+            onSelect: { model.selectedItemID = item.id }
+        )
     }
 
     private var footer: some View {
@@ -257,9 +290,13 @@ private final class ResumeOnce: @unchecked Sendable {
 
 private struct QueueRow: View {
     let item: ConversionItem
+    var selected: Bool
+    var summary: ReviewRowSummary?
     var onCancel: () -> Void
+    var onReview: (Bool) -> Void
     var onReveal: () -> Void
     var onRemove: () -> Void
+    var onSelect: () -> Void
     @State private var hovered = false
 
     var body: some View {
@@ -280,6 +317,12 @@ private struct QueueRow: View {
                 if item.status.isActive {
                     Button("Cancel", action: onCancel)
                         .controlSize(.small)
+                } else if summary != nil {
+                    reviewButton
+                    Button("Reveal in Finder", action: onReveal)
+                        .controlSize(.small)
+                        .disabled(summary?.canReveal != true)
+                        .help(summary?.canReveal == true ? "Show the .srt in Finder" : "Save the .srt before revealing it in Finder")
                 } else if case .done = item.status {
                     Button("Reveal in Finder", action: onReveal)
                         .controlSize(.small)
@@ -299,20 +342,48 @@ private struct QueueRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(hovered ? Color.primary.opacity(0.08) : Color.clear)
+        .background(selected ? Color.accentColor.opacity(0.16) : (hovered ? Color.primary.opacity(0.08) : Color.clear))
         .background {
             RowHover(setHovered: { hovered = $0 })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .onTapGesture(count: 2) {
+            onSelect()
+            if summary != nil {
+                onReview(NSEvent.modifierFlags.contains(.option))
+            }
+        }
+        .onTapGesture(count: 1) {
+            onSelect()
+        }
+        .accessibilityElement(children: .contain)
         .contextMenu {
-            if case .done = item.status {
+            if summary != nil {
+                Button("Review") { onReview(false) }
+                Button("Review in New Window") { onReview(true) }
+            }
+            if summary?.canReveal == true {
+                Button("Reveal in Finder", action: onReveal)
+            } else if case .done = item.status {
                 Button("Reveal in Finder", action: onReveal)
             }
             if item.status.isActive {
                 Button("Cancel", action: onCancel)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var reviewButton: some View {
+        let action = { onReview(NSEvent.modifierFlags.contains(.option)) }
+        if summary?.prominentReview == true {
+            Button("Review", action: action)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        } else {
+            Button("Review", action: action)
+                .controlSize(.small)
         }
     }
 
@@ -332,11 +403,32 @@ private struct QueueRow: View {
     }
 
     private var statusLine: some View {
-        Text(linkedDetail)
-            .font(.callout)
-            .foregroundStyle(detailColor)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(linkedDetail)
+                .font(.callout)
+                .foregroundStyle(detailColor)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if let badge = summary?.badge {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text(badge.label)
+                }
+                .font(.callout)
+                .foregroundStyle(badgeColor(badge))
+                .accessibilityLabel(badge.accessibilityLabel)
+            }
+        }
+    }
+
+    private func badgeColor(_ badge: ReviewProblemBadge) -> Color {
+        switch badge {
+        case .failed:
+            return .red
+        case .toCheck:
+            return .orange
+        }
     }
 
     /// The MKVToolNix download address is a link. Other status text stays plain.
@@ -350,6 +442,9 @@ private struct QueueRow: View {
     }
 
     private var detail: String {
+        if let summary {
+            return summary.statusText
+        }
         switch item.status {
         case .waiting:
             return "Waiting"
@@ -366,6 +461,9 @@ private struct QueueRow: View {
                 return "Done · \(cueText) · \(failed) · \(name)"
             }
             return "Done · \(cueText) · \(name)"
+        case let .awaitingReview(cues, _, _):
+            let cueText = cues == 1 ? "1 cue" : "\(cues) cues"
+            return "Ready to review · \(cueText) · not saved yet"
         case let .failed(message):
             return message
         case .cancelled:
@@ -380,7 +478,10 @@ private struct QueueRow: View {
         case .failed:
             return .red
         case .done:
+            if summary?.needsWriting == true { return .primary }
             return Color(nsColor: .systemGreen)
+        case .awaitingReview:
+            return .primary
         default:
             return .secondary
         }

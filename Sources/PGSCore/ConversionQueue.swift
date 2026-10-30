@@ -29,6 +29,8 @@ public enum ConversionStatus: Equatable, Sendable {
     case extracting
     case converting(completed: Int, total: Int)
     case done(cueCount: Int, unrecognizedCount: Int, outputPath: String)
+    /// Converted, and held until the person saves from the review window.
+    case awaitingReview(cueCount: Int, unrecognizedCount: Int, plannedPath: String)
     case failed(String)
     case cancelled
     case skipped(String)
@@ -37,16 +39,17 @@ public enum ConversionStatus: Equatable, Sendable {
         switch self {
         case .waiting, .extracting, .converting:
             return true
-        case .done, .failed, .cancelled, .skipped:
+        case .done, .awaitingReview, .failed, .cancelled, .skipped:
             return false
         }
     }
 
-    /// Done, failed, cancelled, or skipped. Clear Finished and the row's remove
-    /// button can take these off the list. Waiting, extracting, and converting stay until Cancel.
+    /// Done, held for review, failed, cancelled, or skipped. Clear Finished and
+    /// the row's remove button can take these off the list. Waiting, extracting,
+    /// and converting stay until Cancel.
     public var isRemovable: Bool {
         switch self {
-        case .done, .failed, .cancelled, .skipped:
+        case .done, .awaitingReview, .failed, .cancelled, .skipped:
             return true
         case .waiting, .extracting, .converting:
             return false
@@ -85,6 +88,8 @@ public struct ConversionWork: Sendable {
     public var languages: [String]
     public var maxConcurrent: Int
     public var italics: Bool
+    /// When true, the pipeline keeps each cue picture for the review window.
+    public var keepPictures: Bool
     public var progress: @Sendable (TranscriptionProgress) -> Void
 
     public init(
@@ -92,12 +97,14 @@ public struct ConversionWork: Sendable {
         languages: [String],
         maxConcurrent: Int,
         italics: Bool,
+        keepPictures: Bool = false,
         progress: @escaping @Sendable (TranscriptionProgress) -> Void = { _ in }
     ) {
         self.data = data
         self.languages = languages
         self.maxConcurrent = maxConcurrent
         self.italics = italics
+        self.keepPictures = keepPictures
         self.progress = progress
     }
 }
@@ -163,7 +170,8 @@ public extension TranscriptionPipeline {
         let pipeline = TranscriptionPipeline(
             languages: languages,
             maxConcurrent: max(1, work.maxConcurrent),
-            italics: work.italics
+            italics: work.italics,
+            keepPictures: work.keepPictures
         )
         return try await pipeline.transcribeFile(
             data: work.data,
@@ -203,6 +211,15 @@ public final class ConversionQueue {
     public var confirmReplace: (@MainActor (String) async -> OverwriteAnswer)?
     /// Asks which PGS track to take when the MKV setting is on. Nil uses the usual track.
     public var chooseTrack: (@MainActor (String, [PGSSubtitleTrack], Int) async -> MKVTrackChoice)?
+
+    private struct HeldReview {
+        var document: CueDocument
+        var plannedPath: String
+        var savedPath: String?
+    }
+
+    private var heldReviews: [UUID: HeldReview] = [:]
+    private let pictureSession = CuePictureSession()
 
     public init(preferences: ConversionPreferences = .default, services: ConversionServices) {
         self.storedPreferences = preferences.normalized
@@ -271,7 +288,7 @@ public final class ConversionQueue {
             finishBatchIfIdle()
         case .extracting, .converting:
             tasks[id]?.cancel()
-        case .done, .failed, .cancelled, .skipped:
+        case .done, .awaitingReview, .failed, .cancelled, .skipped:
             break
         }
     }
@@ -291,6 +308,7 @@ public final class ConversionQueue {
         guard items[index].status.isRemovable else { return false }
         items.remove(at: index)
         tasks[id] = nil
+        discardReview(id)
         publish()
         return true
     }
@@ -304,6 +322,7 @@ public final class ConversionQueue {
         items.removeAll { $0.status.isRemovable }
         for id in removed {
             tasks[id] = nil
+            discardReview(id)
         }
         publish()
     }
@@ -584,6 +603,7 @@ public final class ConversionQueue {
     ) async {
         let services = self.services
         let sink = progressSink
+        var spilledDirectory: String?
         do {
             try Task.checkCancellation()
             let data = try await offMain {
@@ -595,6 +615,7 @@ public final class ConversionQueue {
                 languages: [preferences.language],
                 maxConcurrent: preferences.concurrency,
                 italics: preferences.experimentalItalics,
+                keepPictures: true,
                 progress: { progress in
                     sink.send(id: id, completed: progress.completed, total: progress.total)
                 }
@@ -603,24 +624,141 @@ public final class ConversionQueue {
                 try await services.convert(work)
             }
             try Task.checkCancellation()
-            let srt = result.srt
-            try await offMain {
-                try await services.write(path, srt)
+            let packed = try await offMain {
+                ReviewArchive.pack(result)
             }
-            setStatus(
-                id,
-                .done(
-                    cueCount: result.cues.count,
-                    unrecognizedCount: result.failures.count,
-                    outputPath: path
-                )
+            spilledDirectory = packed.pictureDirectory
+            let timing = preferences.saveTiming
+            if timing == .immediately {
+                let srt = packed.srt
+                try await offMain {
+                    try await services.write(path, srt)
+                }
+            }
+            try Task.checkCancellation()
+            var document = packed.document
+            let savedPath: String?
+            if timing == .immediately {
+                document.noteSaved()
+                savedPath = path
+            } else {
+                savedPath = nil
+            }
+            storeReview(
+                id: id,
+                document: document,
+                directory: packed.pictureDirectory,
+                plannedPath: path,
+                savedPath: savedPath
             )
+            spilledDirectory = nil
+            if timing == .immediately {
+                setStatus(
+                    id,
+                    .done(
+                        cueCount: packed.cueCount,
+                        unrecognizedCount: packed.unrecognizedCount,
+                        outputPath: path
+                    )
+                )
+            } else {
+                setStatus(
+                    id,
+                    .awaitingReview(
+                        cueCount: packed.cueCount,
+                        unrecognizedCount: packed.unrecognizedCount,
+                        plannedPath: path
+                    )
+                )
+            }
         } catch is CancellationError {
+            CuePictureFiles.remove(spilledDirectory)
             reserved.remove(path)
             setStatus(id, .cancelled)
         } catch {
+            CuePictureFiles.remove(spilledDirectory)
             reserved.remove(path)
             setStatus(id, .failed(ConversionFailureText.message(for: error)))
+        }
+    }
+
+    /// The editable cues for a finished file, when this queue kept them.
+    public func reviewDocument(for id: UUID) -> CueDocument? {
+        heldReviews[id]?.document
+    }
+
+    public func setReviewDocument(_ document: CueDocument, for id: UUID) {
+        guard heldReviews[id] != nil else { return }
+        heldReviews[id]?.document = document
+        publish()
+    }
+
+    public func reviewPlannedPath(for id: UUID) -> String? {
+        heldReviews[id]?.plannedPath
+    }
+
+    public func reviewSavedPath(for id: UUID) -> String? {
+        heldReviews[id]?.savedPath
+    }
+
+    public func reviewPictureDirectory(for id: UUID) -> String? {
+        pictureSession.directory(for: id)
+    }
+
+    public func hasReview(for id: UUID) -> Bool {
+        heldReviews[id] != nil
+    }
+
+    /// Writes the current review document. The caller decides whether to ask
+    /// about replacing an existing file before this runs.
+    public func saveReview(id: UUID, to path: String) async throws {
+        guard let current = heldReviews[id]?.document else { return }
+        let text = try current.srtText()
+        let services = self.services
+        try await offMain {
+            try await services.write(path, text)
+        }
+        guard var held = heldReviews[id] else { return }
+        held.document.noteSaved(current.cues)
+        held.savedPath = path
+        heldReviews[id] = held
+        markSaved(id: id, path: path, document: held.document)
+    }
+
+    public func rememberOverwriteAnswer(_ answer: OverwriteAnswer) {
+        if let remembered = OverwriteConfirmation.remember(answer) {
+            rememberedOverwrite = remembered
+        }
+    }
+
+    private func storeReview(
+        id: UUID,
+        document: CueDocument,
+        directory: String?,
+        plannedPath: String,
+        savedPath: String?
+    ) {
+        heldReviews[id] = HeldReview(document: document, plannedPath: plannedPath, savedPath: savedPath)
+        pictureSession.store(directory, for: id)
+    }
+
+    private func discardReview(_ id: UUID) {
+        heldReviews[id] = nil
+        pictureSession.discard(id)
+    }
+
+    private func markSaved(id: UUID, path: String, document: CueDocument) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        switch items[index].status {
+        case .done, .awaitingReview:
+            items[index].status = .done(
+                cueCount: document.cues.count,
+                unrecognizedCount: document.ocrFailedCount,
+                outputPath: path
+            )
+            publish()
+        default:
+            break
         }
     }
 
@@ -657,7 +795,7 @@ public final class ConversionQueue {
         items[index].status = status
         if batchOpen {
             switch status {
-            case .done: batch.done += 1
+            case .done, .awaitingReview: batch.done += 1
             case .failed: batch.failed += 1
             case .cancelled: batch.cancelled += 1
             case .skipped: batch.skipped += 1

@@ -12,6 +12,7 @@ struct SettingsView: View {
     @AppStorage(ConversionPreferenceKey.concurrency) private var concurrency = ConversionPreferences.defaultConcurrency
     @AppStorage(ConversionPreferenceKey.italics) private var experimentalItalics = false
     @AppStorage(ConversionPreferenceKey.chooseMKVTrack) private var chooseMKVTrack = false
+    @AppStorage(ConversionPreferenceKey.saveTiming) private var saveTiming = SaveTiming.immediately.rawValue
 
     var body: some View {
         Form {
@@ -41,6 +42,27 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("Output")
+            }
+
+            Section {
+                Picker("After a file is converted", selection: $saveTiming) {
+                    Text("Save the .srt right away").tag(SaveTiming.immediately.rawValue)
+                    Text("Hold it for review before saving").tag(SaveTiming.afterReview.rawValue)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                Text(saveTiming == SaveTiming.afterReview.rawValue
+                    ? "The file waits as “Ready to review” until you click Save."
+                    : "Review and re-save any time with Review.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Toggle("Flag lines below 60% confidence", isOn: .constant(false))
+                    .disabled(true)
+                Text("Shown as “to check”. Needs #19.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("After a file is converted")
             }
 
             Section {
@@ -74,7 +96,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(12)
-        .frame(width: 560, height: 640)
+        .frame(width: 560, height: 820)
         .onAppear { push() }
         .onChange(of: placement) { _ in push() }
         .onChange(of: outputFolder) { _ in push() }
@@ -83,6 +105,7 @@ struct SettingsView: View {
         .onChange(of: concurrency) { _ in push() }
         .onChange(of: experimentalItalics) { _ in push() }
         .onChange(of: chooseMKVTrack) { _ in push() }
+        .onChange(of: saveTiming) { _ in push() }
     }
 
     private var languageOptions: [(label: String, tag: String)] {
@@ -109,7 +132,8 @@ struct SettingsView: View {
             existingFile: ExistingSubtitleAction(rawValue: existingFile) ?? .overwrite,
             concurrency: concurrency,
             experimentalItalics: experimentalItalics,
-            chooseMKVTrack: chooseMKVTrack
+            chooseMKVTrack: chooseMKVTrack,
+            saveTiming: SaveTiming(rawValue: saveTiming) ?? .immediately
         ))
     }
 }

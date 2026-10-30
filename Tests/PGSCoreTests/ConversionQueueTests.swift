@@ -343,6 +343,7 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertFalse(ConversionPreferences.default.experimentalItalics)
         XCTAssertEqual(ConversionPreferences.default.language, "en-US")
         XCTAssertEqual(ConversionPreferences.default.concurrency, 4)
+        XCTAssertEqual(ConversionPreferences.default.saveTiming, .immediately)
         let suite = "pgs2srt.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
@@ -354,13 +355,15 @@ final class ConversionQueueTests: XCTestCase {
             existingFile: .addNumber,
             concurrency: 3,
             experimentalItalics: true,
-            chooseMKVTrack: true
+            chooseMKVTrack: true,
+            saveTiming: .afterReview
         )
         ConversionPreferenceStore.save(saved, to: defaults)
         XCTAssertEqual(ConversionPreferenceStore.load(from: defaults), saved)
         XCTAssertEqual(defaults.string(forKey: ConversionPreferenceKey.placement), ConversionPreferenceKey.placementFolder)
         XCTAssertEqual(defaults.bool(forKey: ConversionPreferenceKey.italics), true)
         XCTAssertEqual(defaults.bool(forKey: ConversionPreferenceKey.chooseMKVTrack), true)
+        XCTAssertEqual(defaults.string(forKey: ConversionPreferenceKey.saveTiming), SaveTiming.afterReview.rawValue)
         XCTAssertFalse(ConversionPreferences.default.chooseMKVTrack)
 
         defaults.set(0, forKey: ConversionPreferenceKey.concurrency)
@@ -371,6 +374,7 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(repaired.language, "en-US")
         XCTAssertEqual(repaired.existingFile, .overwrite)
         XCTAssertTrue(repaired.chooseMKVTrack)
+        XCTAssertEqual(repaired.saveTiming, .afterReview)
         XCTAssertEqual(defaults.integer(forKey: ConversionPreferenceKey.concurrency), 1)
     }
 
@@ -657,6 +661,8 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertFalse(ConversionStatus.converting(completed: 0, total: 0).isRemovable)
         XCTAssertFalse(ConversionStatus.converting(completed: 3, total: 10).isRemovable)
         XCTAssertTrue(ConversionStatus.done(cueCount: 2, unrecognizedCount: 0, outputPath: "/films/Movie.srt").isRemovable)
+        XCTAssertTrue(ConversionStatus.awaitingReview(cueCount: 2, unrecognizedCount: 1, plannedPath: "/films/Movie.srt").isRemovable)
+        XCTAssertFalse(ConversionStatus.awaitingReview(cueCount: 2, unrecognizedCount: 1, plannedPath: "/films/Movie.srt").isActive)
         XCTAssertTrue(ConversionStatus.failed("The PGS file is empty.").isRemovable)
         XCTAssertTrue(ConversionStatus.cancelled.isRemovable)
         XCTAssertTrue(ConversionStatus.skipped(MKVCopy.noPGS).isRemovable)
@@ -1037,6 +1043,69 @@ final class ConversionQueueTests: XCTestCase {
         }
         XCTAssertTrue(removed)
         XCTAssertTrue(script.writes.isEmpty)
+    }
+
+    func testHoldForReviewWritesNothingUntilSaveAndKeepsTheFailureOutOfTheField() async throws {
+        var preferences = ConversionPreferences.default
+        preferences.saveTiming = .afterReview
+        let script = Script()
+        let queue = await makeQueue(preferences: preferences, script: script) { _ in
+            sampleResult(cues: 2, failures: 1)
+        }
+        let outcome = await finish(queue, paths: ["/films/Movie.sup"], script: script)
+        XCTAssertEqual(outcome, BatchOutcome(done: 1, failed: 0, cancelled: 0, skipped: 0))
+        XCTAssertTrue(script.writes.isEmpty)
+        let item = await queue.items[0]
+        guard case let .awaitingReview(cues, unrecognized, path) = item.status else {
+            return XCTFail("expected the file to be held, got \(item.status)")
+        }
+        XCTAssertEqual(cues, 2)
+        XCTAssertEqual(unrecognized, 1)
+        XCTAssertEqual(path, "/films/Movie.srt")
+        let document = await queue.reviewDocument(for: item.id)
+        XCTAssertEqual(document?.cues[0].text, "")
+        XCTAssertEqual(document?.cues[0].showsOCRFailure, true)
+        XCTAssertEqual(document?.cues[1].text, "Line 1")
+        XCTAssertEqual(document?.needsWriting, true)
+        XCTAssertEqual(document?.hasUnsavedEdits, false)
+        XCTAssertFalse(document?.cues[0].srtBody.contains("Line") == true)
+        XCTAssertTrue(document?.cues[0].srtBody.contains("[OCR failed: no text recognized]") == true)
+
+        var edited = try XCTUnwrap(document)
+        edited.setText(id: edited.cues[1].id, text: "Line 1\nSecond line")
+        try edited.setTiming(id: edited.cues[1].id, startPTS: 90_000, endPTS: 270_000)
+        await queue.setReviewDocument(edited, for: item.id)
+        try await queue.saveReview(id: item.id, to: path)
+
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Movie.srt"])
+        let written = script.writes[0].1
+        XCTAssertTrue(written.contains("[OCR failed: no text recognized]"))
+        XCTAssertTrue(written.contains("Line 1\r\nSecond line"))
+        XCTAssertTrue(written.contains("00:00:01,000 --> 00:00:03,000"))
+        XCTAssertFalse(written.contains("[OCR failed: no text recognized]\r\nLine 1\r\nSecond"))
+        let saved = await queue.items[0]
+        XCTAssertEqual(saved.status, .done(cueCount: 2, unrecognizedCount: 1, outputPath: path))
+        let after = await queue.reviewDocument(for: item.id)
+        XCTAssertEqual(after?.needsWriting, false)
+        XCTAssertEqual(after?.cues[1].text, "Line 1\nSecond line")
+    }
+
+    func testSaveImmediatelyStillWritesAndKeepsACleanReview() async {
+        let script = Script()
+        let queue = await makeQueue(script: script) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        _ = await finish(queue, paths: ["/films/Movie.sup"], script: script)
+        let item = await queue.items[0]
+        XCTAssertEqual(item.status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/films/Movie.srt"))
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Movie.srt"])
+        let document = await queue.reviewDocument(for: item.id)
+        XCTAssertEqual(document?.needsWriting, false)
+        XCTAssertEqual(document?.hasUnsavedEdits, false)
+        XCTAssertEqual(document?.cues.first?.text, "Line 0")
+        await queue.clearFinished()
+        let cleared = await queue.reviewDocument(for: item.id)
+        XCTAssertNil(cleared)
     }
 
     func testAFolderQueuesSupAndMkvTogether() async {
