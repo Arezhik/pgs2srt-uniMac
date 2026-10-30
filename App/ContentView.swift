@@ -52,7 +52,7 @@ struct ContentView: View {
             Text("PGS2SRT")
                 .font(.title2)
                 .fontWeight(.semibold)
-            Text("Drop Blu-ray .sup files or a folder. Each file becomes an .srt subtitle.")
+            Text("Drop Blu-ray .sup files, .mkv files, or a folder. Each file becomes an .srt subtitle.")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,9 +85,9 @@ struct ContentView: View {
             Image(systemName: "captions.bubble")
                 .font(.system(size: 42))
                 .foregroundStyle(targeted ? Color.accentColor : Color.secondary)
-            Text(targeted ? "Drop to convert" : "Drop .sup files or a folder")
+            Text(targeted ? "Drop to convert" : "Drop .sup or .mkv files, or a folder")
                 .font(.title3)
-            Text("You can also click Open…. An .mkv is left as it is, with a note that MKV support is coming.")
+            Text("You can also click Open…. An .mkv uses the PGS subtitle track inside it.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)
@@ -291,6 +291,10 @@ private struct QueueRow: View {
             statusLine
             if case let .converting(completed, total) = item.status {
                 progress(completed: completed, total: total)
+            } else if case .extracting = item.status {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Extracting")
             }
         }
         .padding(.horizontal, 8)
@@ -328,17 +332,29 @@ private struct QueueRow: View {
     }
 
     private var statusLine: some View {
-        Text(detail)
+        Text(linkedDetail)
             .font(.callout)
             .foregroundStyle(detailColor)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// The MKVToolNix download address is a link. Other status text stays plain.
+    private var linkedDetail: AttributedString {
+        var text = AttributedString(detail)
+        if let range = text.range(of: MKVCopy.downloadURL), let url = URL(string: MKVCopy.downloadURL) {
+            text[range].link = url
+            text[range].underlineStyle = .single
+        }
+        return text
+    }
+
     private var detail: String {
         switch item.status {
         case .waiting:
             return "Waiting"
+        case .extracting:
+            return "Extracting…"
         case let .converting(completed, total):
             if total > 0 { return "Converting" }
             return completed > 0 ? "Converting" : "Reading…"

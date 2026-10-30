@@ -1,0 +1,22 @@
+{
+  "tracks": [
+    {
+      "id": 0,
+      "type": "video",
+      "codec": "V_MPEG4/ISO/AVC",
+      "properties": { "codec_id": "V_MPEG4/ISO/AVC", "language": "und", "number": 1 }
+    },
+    {
+      "id": 1,
+      "type": "audio",
+      "codec": "A_AC3",
+      "properties": { "codec_id": "A_AC3", "language": "eng", "language_ietf": "en", "number": 2 }
+    },
+    {
+      "id": 2,
+      "type": "subtitles",
+      "codec": "HDMV PGS",
+      "properties": { "codec_id": "S_TEXT/UTF8", "language": "eng", "track_name": "Not PGS", "number": 3 }
+    }
+  ]
+}

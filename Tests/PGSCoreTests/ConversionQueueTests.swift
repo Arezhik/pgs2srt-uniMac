@@ -271,27 +271,22 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(box.outcomes[1], BatchOutcome(done: 0, failed: 1, cancelled: 0, skipped: 0))
     }
 
-    func testMkvIsAPoliteSkipAndDoesNotNotifyOnItsOwn() async {
+    func testMkvWithoutToolNixIsSkippedWithADownloadLink() async {
         let script = Script()
         let box = OutcomeBox()
         let queue = await makeQueue(script: script) { _ in sampleResult() }
         await MainActor.run {
             queue.onBatchFinished = { box.append($0) }
         }
-        let notices = await queue.add(paths: ["/films/Movie.mkv"])
-        XCTAssertEqual(notices, [.mkv(path: "/films/Movie.mkv")])
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let finished = await waitUntil(queue) { _ in box.outcomes.count == 1 }
+        XCTAssertTrue(finished)
         let item = await queue.items[0]
         XCTAssertEqual(item.name, "Movie.mkv")
-        XCTAssertEqual(item.status, .skipped("MKV support is coming."))
-        try? await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertTrue(box.outcomes.isEmpty)
-
-        await queue.add(paths: ["/films/Movie.sup", "/films/Other.mkv"])
-        let finished = await waitUntil(queue) { _ in !box.outcomes.isEmpty }
-        XCTAssertTrue(finished)
-        let items = await queue.items
-        XCTAssertEqual(items.count, 3)
-        XCTAssertEqual(items[2].status, .skipped("MKV support is coming."))
+        XCTAssertEqual(item.status, .skipped(MKVCopy.needsToolNix))
+        XCTAssertTrue(MKVCopy.needsToolNix.contains("https://mkvtoolnix.download"))
+        XCTAssertEqual(box.outcomes, [BatchOutcome(done: 0, failed: 0, cancelled: 0, skipped: 1)])
+        XCTAssertTrue(script.works.isEmpty)
     }
 
     func testFolderDropQueuesTheSupFilesInside() async {
@@ -310,7 +305,7 @@ final class ConversionQueueTests: XCTestCase {
         let queue = await makeQueue(script: script) { _ in sampleResult() }
         await queue.add(paths: ["/clips"])
         let banners = await queue.banners
-        XCTAssertEqual(banners, ["No .sup files were found in clips."])
+        XCTAssertEqual(banners, ["No .sup or .mkv files were found in clips."])
         let queued = await queue.items
         XCTAssertTrue(queued.isEmpty)
         await queue.dismissBanner(at: 0)
@@ -358,12 +353,15 @@ final class ConversionQueueTests: XCTestCase {
             language: "ja-JP",
             existingFile: .addNumber,
             concurrency: 3,
-            experimentalItalics: true
+            experimentalItalics: true,
+            chooseMKVTrack: true
         )
         ConversionPreferenceStore.save(saved, to: defaults)
         XCTAssertEqual(ConversionPreferenceStore.load(from: defaults), saved)
         XCTAssertEqual(defaults.string(forKey: ConversionPreferenceKey.placement), ConversionPreferenceKey.placementFolder)
         XCTAssertEqual(defaults.bool(forKey: ConversionPreferenceKey.italics), true)
+        XCTAssertEqual(defaults.bool(forKey: ConversionPreferenceKey.chooseMKVTrack), true)
+        XCTAssertFalse(ConversionPreferences.default.chooseMKVTrack)
 
         defaults.set(0, forKey: ConversionPreferenceKey.concurrency)
         defaults.set("  ", forKey: ConversionPreferenceKey.language)
@@ -372,6 +370,7 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(repaired.concurrency, 1)
         XCTAssertEqual(repaired.language, "en-US")
         XCTAssertEqual(repaired.existingFile, .overwrite)
+        XCTAssertTrue(repaired.chooseMKVTrack)
         XCTAssertEqual(defaults.integer(forKey: ConversionPreferenceKey.concurrency), 1)
     }
 
@@ -654,12 +653,15 @@ final class ConversionQueueTests: XCTestCase {
 
     func testWhichRowsCanBeRemovedOrCleared() {
         XCTAssertFalse(ConversionStatus.waiting.isRemovable)
+        XCTAssertFalse(ConversionStatus.extracting.isRemovable)
         XCTAssertFalse(ConversionStatus.converting(completed: 0, total: 0).isRemovable)
         XCTAssertFalse(ConversionStatus.converting(completed: 3, total: 10).isRemovable)
         XCTAssertTrue(ConversionStatus.done(cueCount: 2, unrecognizedCount: 0, outputPath: "/films/Movie.srt").isRemovable)
         XCTAssertTrue(ConversionStatus.failed("The PGS file is empty.").isRemovable)
         XCTAssertTrue(ConversionStatus.cancelled.isRemovable)
-        XCTAssertTrue(ConversionStatus.skipped("MKV support is coming.").isRemovable)
+        XCTAssertTrue(ConversionStatus.skipped(MKVCopy.noPGS).isRemovable)
+        XCTAssertTrue(ConversionStatus.extracting.isActive)
+        XCTAssertFalse(ConversionStatus.skipped(MKVCopy.noPGS).isActive)
     }
 
     func testClearFinishedEnabledStateAndReturnToAnEmptyQueue() async {
@@ -677,7 +679,7 @@ final class ConversionQueueTests: XCTestCase {
         let emptyItems = await queue.items
         XCTAssertTrue(emptyItems.isEmpty)
 
-        await queue.add(paths: ["/films/First.sup", "/films/Second.sup", "/films/Movie.mkv"])
+        await queue.add(paths: ["/films/First.sup", "/films/Second.sup", "/films/Notes.txt"])
         let started = await waitUntil(queue) { queue in
             if case .converting = queue.items.first?.status { return true }
             return false
@@ -685,7 +687,7 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertTrue(started)
 
         let whileRunning = await queue.items
-        XCTAssertEqual(whileRunning.map(\.name), ["First.sup", "Second.sup", "Movie.mkv"])
+        XCTAssertEqual(whileRunning.map(\.name), ["First.sup", "Second.sup", "Notes.txt"])
         XCTAssertFalse(whileRunning[0].status.isRemovable)
         XCTAssertFalse(whileRunning[1].status.isRemovable)
         XCTAssertTrue(whileRunning[2].status.isRemovable)
@@ -743,7 +745,7 @@ final class ConversionQueueTests: XCTestCase {
             "/films/Good.sup",
             "/films/Stop.sup",
             "/films/Bad.sup",
-            "/films/Movie.mkv"
+            "/films/Notes.txt"
         ])
         let started = await waitUntil(queue) { queue in
             if case .converting = queue.items.first?.status { return true }
@@ -759,14 +761,14 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertTrue(settled)
 
         let settledItems = await queue.items
-        XCTAssertEqual(settledItems.map(\.name), ["Good.sup", "Stop.sup", "Bad.sup", "Movie.mkv"])
+        XCTAssertEqual(settledItems.map(\.name), ["Good.sup", "Stop.sup", "Bad.sup", "Notes.txt"])
         XCTAssertEqual(
             settledItems[0].status,
             .done(cueCount: 4, unrecognizedCount: 0, outputPath: "/films/Good.srt")
         )
         XCTAssertEqual(settledItems[1].status, .cancelled)
         XCTAssertEqual(settledItems[2].status, .failed("The PGS file is empty."))
-        XCTAssertEqual(settledItems[3].status, .skipped("MKV support is coming."))
+        XCTAssertEqual(settledItems[3].status, .skipped("Notes.txt is not a .sup or .mkv file, so it was skipped."))
         XCTAssertTrue(settledItems.allSatisfy(\.status.isRemovable))
         let enabled = await queue.canClearFinished
         XCTAssertTrue(enabled)
@@ -780,7 +782,7 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertTrue(removedFailed)
         XCTAssertFalse(removedFailedAgain)
         let afterOne = await queue.items
-        XCTAssertEqual(afterOne.map(\.name), ["Good.sup", "Stop.sup", "Movie.mkv"])
+        XCTAssertEqual(afterOne.map(\.name), ["Good.sup", "Stop.sup", "Notes.txt"])
         let stillEnabled = await queue.canClearFinished
         XCTAssertTrue(stillEnabled)
         XCTAssertEqual(script.writes.map(\.0), ["/films/Good.srt"])
@@ -819,6 +821,370 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertFalse(disabled)
         XCTAssertEqual(script.writes.map(\.0), ["/films/Only.srt"])
         XCTAssertTrue(script.fileExists("/films/Only.srt"))
+    }
+
+    func testMkvUsesTheEnglishTrackAndNamesTheSrtAfterTheMkv() async throws {
+        let mkv = MKVDouble(json: englishThenJapanese)
+        let script = Script()
+        let queue = await makeQueue(script: script, mkv: mkv.client()) { work in
+            script.record(work)
+            return sampleResult(cues: 3, failures: 0)
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let finished = await waitUntil(queue) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        let item = await queue.items[0]
+        XCTAssertEqual(item.status, .done(cueCount: 3, unrecognizedCount: 0, outputPath: "/films/Movie.srt"))
+        XCTAssertEqual(mkv.extractedTracks, [4])
+        XCTAssertEqual(script.writes.map(\.0), ["/films/Movie.srt"])
+        XCTAssertEqual(script.works.first?.data, Data("PGS".utf8))
+        let destination = try XCTUnwrap(mkv.destinations.first)
+        let removed = await waitUntil(queue) { _ in
+            !FileManager.default.fileExists(atPath: destination)
+                && !FileManager.default.fileExists(atPath: (destination as NSString).deletingLastPathComponent)
+        }
+        XCTAssertTrue(removed)
+    }
+
+    func testMkvInAChosenFolderStillFollowsTheExistingFileSetting() async throws {
+        let mkv = MKVDouble(json: englishThenJapanese)
+        let script = Script(files: ["/out/Movie.srt"])
+        var preferences = ConversionPreferences.default
+        preferences.placement = .folder("/out")
+        preferences.existingFile = .addNumber
+        let queue = await makeQueue(preferences: preferences, script: script, mkv: mkv.client()) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let finished = await waitUntil(queue) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        let item = await queue.items[0]
+        XCTAssertEqual(item.status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/out/Movie 2.srt"))
+        let destination = try XCTUnwrap(mkv.destinations.first)
+        let removed = await waitUntil(queue) { _ in
+            !FileManager.default.fileExists(atPath: destination)
+        }
+        XCTAssertTrue(removed)
+    }
+
+    func testMkvOverwriteAsksBeforeExtracting() async {
+        let mkv = MKVDouble(json: englishThenJapanese)
+        let script = Script(files: ["/films/Movie.srt"])
+        let asks = AnswerBox(answer: .skip(applyToAll: false))
+        let queue = await makeQueue(script: script, mkv: mkv.client()) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await MainActor.run {
+            queue.confirmReplace = { path in
+                asks.next(path)
+            }
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let finished = await waitUntil(queue) { queue in
+            if case .skipped = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(asks.paths, ["/films/Movie.srt"])
+        XCTAssertTrue(mkv.extractedTracks.isEmpty)
+        XCTAssertTrue(script.writes.isEmpty)
+        let item = await queue.items[0]
+        XCTAssertEqual(item.status, .skipped("Movie.srt already exists, so this file was skipped."))
+    }
+
+    func testMkvWithoutPGSIsSkippedAndABadFileFails() async {
+        let mkv = MKVDouble(json: Data("{\"tracks\":[{\"id\":0,\"type\":\"video\",\"codec\":\"V_MPEG4/ISO/AVC\",\"properties\":{\"codec_id\":\"V_MPEG4/ISO/AVC\"}}]}".utf8))
+        let script = Script()
+        let queue = await makeQueue(script: script, mkv: mkv.client()) { _ in sampleResult() }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let skipped = await waitUntil(queue) { queue in
+            if case .skipped = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(skipped)
+        let item = await queue.items[0]
+        XCTAssertEqual(item.status, .skipped(MKVCopy.noPGS))
+        XCTAssertTrue(mkv.extractedTracks.isEmpty)
+
+        mkv.json = Data("not json".utf8)
+        await queue.add(paths: ["/films/Other.mkv"])
+        let failed = await waitUntil(queue) { queue in
+            queue.items.count == 2 && !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(failed)
+        let failedItem = await queue.items[1]
+        XCTAssertEqual(failedItem.status, .failed("Could not read the subtitle tracks in this MKV."))
+    }
+
+    func testChoosingATrackUsesThatIdAndSkipDoesNotExtract() async {
+        var preferences = ConversionPreferences.default
+        preferences.chooseMKVTrack = true
+        let mkv = MKVDouble(json: englishThenJapanese)
+        let picks = TrackBox(choice: .convert(trackID: 2))
+        let script = Script()
+        let queue = await makeQueue(preferences: preferences, script: script, mkv: mkv.client()) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await MainActor.run {
+            queue.chooseTrack = { name, tracks, suggested in
+                picks.record(name: name, tracks: tracks, suggested: suggested)
+                return picks.choice
+            }
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let finished = await waitUntil(queue) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(picks.names, ["Movie.mkv"])
+        XCTAssertEqual(picks.suggested, [4])
+        XCTAssertEqual(picks.seenTracks.first?.map(\.id), [2, 4])
+        XCTAssertEqual(mkv.extractedTracks, [2])
+
+        preferences.chooseMKVTrack = false
+        let quiet = MKVDouble(json: englishThenJapanese)
+        let quietPicks = TrackBox(choice: .convert(trackID: 2))
+        let quietQueue = await makeQueue(preferences: preferences, script: script, mkv: quiet.client()) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await MainActor.run {
+            quietQueue.chooseTrack = { name, tracks, suggested in
+                quietPicks.record(name: name, tracks: tracks, suggested: suggested)
+                return quietPicks.choice
+            }
+        }
+        await quietQueue.add(paths: ["/films/Quiet.mkv"])
+        let quietDone = await waitUntil(quietQueue) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(quietDone)
+        XCTAssertTrue(quietPicks.names.isEmpty)
+        XCTAssertEqual(quiet.extractedTracks, [4])
+
+        picks.choice = .skip
+        await queue.add(paths: ["/films/Again.mkv"])
+        let skipped = await waitUntil(queue) { queue in
+            queue.items.count == 2 && !queue.items.contains(where: \.status.isActive)
+        }
+        XCTAssertTrue(skipped)
+        let skippedItem = await queue.items[1]
+        XCTAssertEqual(skippedItem.status, .skipped(MKVCopy.skippedTrack))
+        XCTAssertEqual(mkv.extractedTracks, [2])
+    }
+
+    func testCancelDuringExtractRemovesTheTempFileAndDoesNotConvert() async {
+        let gate = Gate()
+        defer { gate.openAll() }
+        let mkv = MKVDouble(json: englishThenJapanese)
+        mkv.beforeReturn = { _ in
+            try await gate.wait()
+        }
+        let script = Script()
+        let queue = await makeQueue(script: script, mkv: mkv.client()) { _ in
+            script.record(ConversionWork(data: Data(), languages: [], maxConcurrent: 1, italics: false))
+            return sampleResult()
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let extracting = await waitUntil(queue) { _ in mkv.enteredExtract }
+        XCTAssertTrue(extracting)
+        let sawExtracting = await waitUntil(queue) { queue in
+            queue.items.first?.status == .extracting
+        }
+        XCTAssertTrue(sawExtracting)
+        let id = await queue.items[0].id
+        await queue.cancel(id: id)
+        let cancelled = await waitUntil(queue) { queue in
+            queue.items.first?.status == .cancelled
+        }
+        XCTAssertTrue(cancelled)
+        XCTAssertTrue(script.works.isEmpty)
+        let destination = mkv.destinations.first
+        XCTAssertNotNil(destination)
+        if let destination {
+            let removed = await waitUntil(queue) { _ in
+                !FileManager.default.fileExists(atPath: destination)
+                    && !FileManager.default.fileExists(atPath: (destination as NSString).deletingLastPathComponent)
+            }
+            XCTAssertTrue(removed)
+        }
+    }
+
+    func testAFailedExtractAlsoRemovesTheTempFile() async throws {
+        let mkv = MKVDouble(json: englishThenJapanese)
+        mkv.failExtract = true
+        let script = Script()
+        let queue = await makeQueue(script: script, mkv: mkv.client()) { _ in sampleResult() }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let failed = await waitUntil(queue) { queue in
+            if case .failed = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(failed)
+        let failedItem = await queue.items[0]
+        XCTAssertEqual(failedItem.status, .failed("Could not extract the PGS subtitles from this MKV."))
+        let destination = try XCTUnwrap(mkv.destinations.first)
+        let removed = await waitUntil(queue) { _ in
+            !FileManager.default.fileExists(atPath: destination)
+                && !FileManager.default.fileExists(atPath: (destination as NSString).deletingLastPathComponent)
+        }
+        XCTAssertTrue(removed)
+        XCTAssertTrue(script.writes.isEmpty)
+    }
+
+    func testAFolderQueuesSupAndMkvTogether() async {
+        let mkv = MKVDouble(json: englishThenJapanese)
+        let script = Script(directories: [
+            "/clips": ["/clips/A.sup", "/clips/nested", "/clips/Notes.txt"],
+            "/clips/nested": ["/clips/nested/B.mkv"]
+        ])
+        let queue = await makeQueue(script: script, mkv: mkv.client()) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        let outcome = await finish(queue, paths: ["/clips"], script: script)
+        let items = await queue.items
+        XCTAssertEqual(items.map(\.name), ["A.sup", "B.mkv"])
+        XCTAssertEqual(items[0].status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/clips/A.srt"))
+        XCTAssertEqual(items[1].status, .done(cueCount: 1, unrecognizedCount: 0, outputPath: "/clips/nested/B.srt"))
+        XCTAssertEqual(outcome?.done, 2)
+        XCTAssertEqual(mkv.extractedTracks, [4])
+    }
+}
+
+private let englishThenJapanese = Data(
+    """
+    {"tracks":[
+      {"id":2,"type":"subtitles","codec":"HDMV PGS","properties":{"codec_id":"S_HDMV/PGS","language":"jpn","language_ietf":"ja","number":3,"track_name":"Japanese","forced_track":true,"default_track":true}},
+      {"id":4,"type":"subtitles","codec":"HDMV PGS","properties":{"codec_id":"S_HDMV/PGS","language":"und","language_ietf":"en","number":5,"track_name":"English","forced_track":false,"default_track":false}}
+    ]}
+    """.utf8
+)
+
+/// Stand-in for mkvmerge and mkvextract. Writes a tiny `.sup` into the temp path the queue chose.
+private final class MKVDouble: @unchecked Sendable {
+    var json: Data
+    var failExtract = false
+    var beforeReturn: (@Sendable (String) async throws -> Void)?
+    private let lock = NSLock()
+    private var tracks: [Int] = []
+    private var dests: [String] = []
+    private var entered = false
+
+    init(json: Data) {
+        self.json = json
+    }
+
+    var extractedTracks: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return tracks
+    }
+
+    var destinations: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return dests
+    }
+
+    var enteredExtract: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return entered
+    }
+
+    func currentJSON() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return json
+    }
+
+    func client() -> MKVClient {
+        MKVClient(
+            locate: {
+                MKVToolPaths(mkvmerge: "/usr/bin/mkvmerge", mkvextract: "/usr/bin/mkvextract")
+            },
+            identify: { _, _ in
+                self.currentJSON()
+            },
+            extract: { _, _, track, destination in
+                let shouldFail = self.note(track, destination)
+                try Data("PGS".utf8).write(to: URL(fileURLWithPath: destination))
+                if shouldFail {
+                    throw MKVFailure.extractFailed
+                }
+                if let beforeReturn = self.beforeReturn {
+                    try await beforeReturn(destination)
+                }
+            }
+        )
+    }
+
+    private func note(_ track: Int, _ destination: String) -> Bool {
+        lock.lock()
+        tracks.append(track)
+        dests.append(destination)
+        entered = true
+        let shouldFail = failExtract
+        lock.unlock()
+        return shouldFail
+    }
+}
+
+private final class TrackBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedChoice: MKVTrackChoice
+    private var storedNames: [String] = []
+    private var storedSuggested: [Int] = []
+    private var storedTracks: [[PGSSubtitleTrack]] = []
+
+    init(choice: MKVTrackChoice) {
+        storedChoice = choice
+    }
+
+    var choice: MKVTrackChoice {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedChoice
+        }
+        set {
+            lock.lock()
+            storedChoice = newValue
+            lock.unlock()
+        }
+    }
+
+    func record(name: String, tracks: [PGSSubtitleTrack], suggested: Int) {
+        lock.lock()
+        storedNames.append(name)
+        storedSuggested.append(suggested)
+        storedTracks.append(tracks)
+        lock.unlock()
+    }
+
+    var names: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedNames
+    }
+
+    var suggested: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSuggested
+    }
+
+    var seenTracks: [[PGSSubtitleTrack]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedTracks
     }
 }
 
@@ -874,12 +1240,16 @@ private final class AnswerBox: @unchecked Sendable {
 private func makeQueue(
     preferences: ConversionPreferences = .default,
     script: Script,
+    mkv: MKVClient = .unavailable,
     convert: @escaping @Sendable (ConversionWork) async throws -> TranscriptionResult
 ) async -> ConversionQueue {
     let listing = script.listing
     let services = ConversionServices(
         read: { path in
             if let data = script.bytes[path] { return data }
+            if FileManager.default.fileExists(atPath: path) {
+                return (try? Data(contentsOf: URL(fileURLWithPath: path))) ?? Data()
+            }
             return Data()
         },
         write: { path, text in
@@ -888,7 +1258,8 @@ private func makeQueue(
         fileExists: { script.fileExists($0) },
         directoryExists: { script.directoryExists($0) },
         listing: listing,
-        convert: convert
+        convert: convert,
+        mkv: mkv
     )
     return await ConversionQueue(preferences: preferences, services: services)
 }

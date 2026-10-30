@@ -1,7 +1,7 @@
 import SwiftUI
 import PGSCore
 
-/// Output folder, language, collisions, concurrency, and the italics opt-in.
+/// Output folder, language, collisions, concurrency, italics, and the MKV track picker.
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
 
@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(ConversionPreferenceKey.existingFile) private var existingFile = ExistingSubtitleAction.overwrite.rawValue
     @AppStorage(ConversionPreferenceKey.concurrency) private var concurrency = ConversionPreferences.defaultConcurrency
     @AppStorage(ConversionPreferenceKey.italics) private var experimentalItalics = false
+    @AppStorage(ConversionPreferenceKey.chooseMKVTrack) private var chooseMKVTrack = false
 
     var body: some View {
         Form {
@@ -61,10 +62,19 @@ struct SettingsView: View {
             } header: {
                 Text("Recognition")
             }
+
+            Section {
+                Toggle("Choose the subtitle track for each MKV", isOn: $chooseMKVTrack)
+                Text("Off uses the English PGS track, or the first PGS track when the file has no English one.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("MKV")
+            }
         }
         .formStyle(.grouped)
         .padding(12)
-        .frame(width: 560, height: 520)
+        .frame(width: 560, height: 640)
         .onAppear { push() }
         .onChange(of: placement) { _ in push() }
         .onChange(of: outputFolder) { _ in push() }
@@ -72,6 +82,7 @@ struct SettingsView: View {
         .onChange(of: existingFile) { _ in push() }
         .onChange(of: concurrency) { _ in push() }
         .onChange(of: experimentalItalics) { _ in push() }
+        .onChange(of: chooseMKVTrack) { _ in push() }
     }
 
     private var languageOptions: [(label: String, tag: String)] {
@@ -97,7 +108,8 @@ struct SettingsView: View {
             language: language,
             existingFile: ExistingSubtitleAction(rawValue: existingFile) ?? .overwrite,
             concurrency: concurrency,
-            experimentalItalics: experimentalItalics
+            experimentalItalics: experimentalItalics,
+            chooseMKVTrack: chooseMKVTrack
         ))
     }
 }

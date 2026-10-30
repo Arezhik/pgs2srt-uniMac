@@ -1,6 +1,6 @@
 import Foundation
 
-/// One `.sup` file in the window's queue.
+/// One `.sup` or `.mkv` file in the window's queue.
 public struct ConversionItem: Identifiable, Equatable, Sendable {
     public let id: UUID
     public var sourcePath: String
@@ -22,9 +22,11 @@ public struct ConversionItem: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Waiting, reading, finished, or stopped.
+/// Waiting, extracting, converting, finished, or stopped.
 public enum ConversionStatus: Equatable, Sendable {
     case waiting
+    /// `mkvextract` is pulling the PGS track out of an MKV.
+    case extracting
     case converting(completed: Int, total: Int)
     case done(cueCount: Int, unrecognizedCount: Int, outputPath: String)
     case failed(String)
@@ -33,7 +35,7 @@ public enum ConversionStatus: Equatable, Sendable {
 
     public var isActive: Bool {
         switch self {
-        case .waiting, .converting:
+        case .waiting, .extracting, .converting:
             return true
         case .done, .failed, .cancelled, .skipped:
             return false
@@ -41,12 +43,12 @@ public enum ConversionStatus: Equatable, Sendable {
     }
 
     /// Done, failed, cancelled, or skipped. Clear Finished and the row's remove
-    /// button can take these off the list. Waiting and converting stay until Cancel.
+    /// button can take these off the list. Waiting, extracting, and converting stay until Cancel.
     public var isRemovable: Bool {
         switch self {
         case .done, .failed, .cancelled, .skipped:
             return true
-        case .waiting, .converting:
+        case .waiting, .extracting, .converting:
             return false
         }
     }
@@ -108,6 +110,7 @@ public struct ConversionServices: Sendable {
     public var directoryExists: @Sendable (String) -> Bool
     public var listing: DirectoryListing
     public var convert: @Sendable (ConversionWork) async throws -> TranscriptionResult
+    public var mkv: MKVClient
 
     public init(
         read: @escaping @Sendable (String) async throws -> Data,
@@ -115,7 +118,8 @@ public struct ConversionServices: Sendable {
         fileExists: @escaping @Sendable (String) -> Bool,
         directoryExists: @escaping @Sendable (String) -> Bool,
         listing: DirectoryListing,
-        convert: @escaping @Sendable (ConversionWork) async throws -> TranscriptionResult
+        convert: @escaping @Sendable (ConversionWork) async throws -> TranscriptionResult,
+        mkv: MKVClient = .live
     ) {
         self.read = read
         self.write = write
@@ -123,6 +127,7 @@ public struct ConversionServices: Sendable {
         self.directoryExists = directoryExists
         self.listing = listing
         self.convert = convert
+        self.mkv = mkv
     }
 
     /// Disk reads and writes. `convert` is the shared transcription pipeline.
@@ -142,7 +147,8 @@ public struct ConversionServices: Sendable {
                 return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
             },
             listing: .live,
-            convert: convert
+            convert: convert,
+            mkv: .live
         )
     }
 }
@@ -195,6 +201,8 @@ public final class ConversionQueue {
     private var rememberedOverwrite: RememberedOverwrite?
     /// Asks before Overwrite replaces a file. Nil replaces without asking, for tests and tools.
     public var confirmReplace: (@MainActor (String) async -> OverwriteAnswer)?
+    /// Asks which PGS track to take when the MKV setting is on. Nil uses the usual track.
+    public var chooseTrack: (@MainActor (String, [PGSSubtitleTrack], Int) async -> MKVTrackChoice)?
 
     public init(preferences: ConversionPreferences = .default, services: ConversionServices) {
         self.storedPreferences = preferences.normalized
@@ -206,12 +214,12 @@ public final class ConversionQueue {
         }
     }
 
-    /// Add dropped or opened paths. Folders are searched for `.sup` files.
+    /// Add dropped or opened paths. Folders are searched for `.sup` and `.mkv` files.
     /// `outputFolder`, when set, is where this batch of files is written instead of the saved place.
     @discardableResult
     public func add(paths: [String], outputFolder: String? = nil) -> [IntakeNotice] {
         let intake = FileIntake.collect(paths: paths, listing: services.listing)
-        let fresh = intake.supPaths.filter { !isActive($0) }
+        let fresh = intake.sourcePaths.filter { !isActive($0) }
         if !fresh.isEmpty {
             ensureBatch()
         }
@@ -261,7 +269,7 @@ public final class ConversionQueue {
             tasks[id]?.cancel()
             setStatus(id, .cancelled)
             finishBatchIfIdle()
-        case .converting:
+        case .extracting, .converting:
             tasks[id]?.cancel()
         case .done, .failed, .cancelled, .skipped:
             break
@@ -370,15 +378,128 @@ public final class ConversionQueue {
     private func perform(_ id: UUID) async {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard case .waiting = items[index].status else { return }
+        let source = items[index].sourcePath
         if Task.isCancelled {
-            outputFolderOverrides.removeValue(forKey: items[index].sourcePath)
+            outputFolderOverrides.removeValue(forKey: source)
             setStatus(id, .cancelled)
             return
         }
-        let source = items[index].sourcePath
+        let outputFolder = outputFolderOverrides.removeValue(forKey: source)
+        if FileIntake.isMkv(source) {
+            await performMKV(id: id, source: source, outputFolder: outputFolder)
+        } else {
+            await performSup(id: id, source: source, outputFolder: outputFolder)
+        }
+    }
+
+    private func performSup(id: UUID, source: String, outputFolder: String?) async {
+        guard let prepared = await resolveDestination(id: id, source: source, outputFolder: outputFolder) else {
+            return
+        }
+        await beginConversion(id: id, readPath: source, prepared: prepared)
+    }
+
+    /// Lists PGS tracks, extracts the chosen one, then runs the `.sup` pipeline.
+    /// The temporary `.sup` and its folder are removed on every way out.
+    private func performMKV(id: UUID, source: String, outputFolder: String?) async {
+        guard isStillRunning(id) else { return }
+        guard let tools = services.mkv.locate() else {
+            setStatus(id, .skipped(MKVCopy.needsToolNix))
+            return
+        }
+        guard markExtracting(id) else { return }
+
+        let parsed: [PGSSubtitleTrack]
+        do {
+            try Task.checkCancellation()
+            let json = try await services.mkv.identify(tools.mkvmerge, source)
+            try Task.checkCancellation()
+            parsed = try MKVIdentify.tracks(in: json)
+        } catch is CancellationError {
+            setStatus(id, .cancelled)
+            return
+        } catch {
+            setStatus(id, .failed(ConversionFailureText.message(for: error)))
+            return
+        }
+
+        guard let suggested = MKVIdentify.preferredTrack(in: parsed) else {
+            setStatus(id, .skipped(MKVCopy.noPGS))
+            return
+        }
+
+        let track: PGSSubtitleTrack
+        if preferences.chooseMKVTrack, let chooseTrack {
+            let choice = await chooseTrack(FileIntake.lastComponent(source), parsed, suggested.id)
+            if Task.isCancelled || !isStillRunning(id) {
+                setStatus(id, .cancelled)
+                return
+            }
+            switch choice {
+            case let .convert(trackID):
+                track = parsed.first { $0.id == trackID } ?? suggested
+            case .skip:
+                setStatus(id, .skipped(MKVCopy.skippedTrack))
+                return
+            case .cancel:
+                setStatus(id, .cancelled)
+                return
+            }
+        } else {
+            track = suggested
+        }
+
+        guard let prepared = await resolveDestination(id: id, source: source, outputFolder: outputFolder) else {
+            return
+        }
+
+        let folder: URL
+        do {
+            folder = try TemporaryExtract.create()
+        } catch {
+            setStatus(id, .failed(ConversionFailureText.message(for: error)))
+            return
+        }
+        defer { TemporaryExtract.remove(folder) }
+
+        let supPath = folder.appendingPathComponent("subtitles.sup").path
+        do {
+            try Task.checkCancellation()
+            try await services.mkv.extract(tools.mkvextract, source, track.id, supPath)
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            setStatus(id, .cancelled)
+            return
+        } catch {
+            setStatus(id, .failed(ConversionFailureText.message(for: error)))
+            return
+        }
+
+        if Task.isCancelled || !isStillRunning(id) {
+            setStatus(id, .cancelled)
+            return
+        }
+        await beginConversion(id: id, readPath: supPath, prepared: prepared)
+    }
+
+    private func markExtracting(_ id: UUID) -> Bool {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
+        guard items[index].status.isActive else { return false }
+        items[index].status = .extracting
+        publish()
+        return true
+    }
+
+    /// Where this file will be written, after the overwrite question. Nil means the row is already finished.
+    private func resolveDestination(
+        id: UUID,
+        source: String,
+        outputFolder: String?
+    ) async -> (path: String, preferences: ConversionPreferences)? {
+        guard isStillRunning(id) else { return nil }
         var prefs = preferences
-        if let folder = outputFolderOverrides.removeValue(forKey: source) {
-            prefs.placement = .folder(folder)
+        if let outputFolder {
+            prefs.placement = .folder(outputFolder)
         }
         let planned = SRTOutputPath.plan(
             sourcePath: source,
@@ -396,12 +517,12 @@ public final class ConversionQueue {
         ) {
         case let .ask(path):
             let answer = await askToReplace(path)
-            if !isStillWaiting(id) {
-                return
+            if !isStillRunning(id) {
+                return nil
             }
             if Task.isCancelled {
                 setStatus(id, .cancelled)
-                return
+                return nil
             }
             if let remembered = OverwriteConfirmation.remember(answer) {
                 rememberedOverwrite = remembered
@@ -413,29 +534,38 @@ public final class ConversionQueue {
                 destination = .skipBecauseExists(path)
             case .cancel:
                 setStatus(id, .cancelled)
-                return
+                return nil
             }
         case let .ready(output):
             destination = output
         }
         switch destination {
         case let .write(path):
-            guard let current = items.firstIndex(where: { $0.id == id }) else { return }
-            reserved.insert(path)
-            items[current].status = .converting(completed: 0, total: 0)
-            publish()
-            await convert(id: id, source: source, path: path, preferences: prefs)
+            return (path, prefs)
         case .skipBecauseExists, .skipBecauseReserved:
             setStatus(id, .skipped(Self.skipMessage(destination)))
+            return nil
         case let .reject(message):
             setStatus(id, .failed(message))
+            return nil
         }
     }
 
-    private func isStillWaiting(_ id: UUID) -> Bool {
+    private func beginConversion(
+        id: UUID,
+        readPath: String,
+        prepared: (path: String, preferences: ConversionPreferences)
+    ) async {
+        guard let current = items.firstIndex(where: { $0.id == id }), items[current].status.isActive else { return }
+        reserved.insert(prepared.path)
+        items[current].status = .converting(completed: 0, total: 0)
+        publish()
+        await convert(id: id, readPath: readPath, path: prepared.path, preferences: prepared.preferences)
+    }
+
+    private func isStillRunning(_ id: UUID) -> Bool {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
-        if case .waiting = items[index].status { return true }
-        return false
+        return items[index].status.isActive
     }
 
     /// Asks only when a callback is installed. Otherwise Overwrite replaces the file.
@@ -448,7 +578,7 @@ public final class ConversionQueue {
     /// main actor stays free and cancelling the row cancels that work.
     private func convert(
         id: UUID,
-        source: String,
+        readPath: String,
         path: String,
         preferences: ConversionPreferences
     ) async {
@@ -457,7 +587,7 @@ public final class ConversionQueue {
         do {
             try Task.checkCancellation()
             let data = try await offMain {
-                try await services.read(source)
+                try await services.read(readPath)
             }
             try Task.checkCancellation()
             let work = ConversionWork(
@@ -531,7 +661,7 @@ public final class ConversionQueue {
             case .failed: batch.failed += 1
             case .cancelled: batch.cancelled += 1
             case .skipped: batch.skipped += 1
-            case .waiting, .converting: break
+            case .waiting, .extracting, .converting: break
             }
         }
         publish()
@@ -560,6 +690,20 @@ public final class ConversionQueue {
         case .write, .reject:
             return "Skipped."
         }
+    }
+}
+
+/// A unique folder for one extracted `.sup`. Removed whether conversion finishes, fails, or is cancelled.
+private enum TemporaryExtract {
+    static func create() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PGS2SRT-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    static func remove(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 }
 

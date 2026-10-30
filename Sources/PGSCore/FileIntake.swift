@@ -37,19 +37,16 @@ public struct DirectoryListing: Sendable {
 
 /// A file or folder the person dropped that is not turned into an `.srt`.
 public enum IntakeNotice: Equatable, Sendable {
-    case mkv(path: String)
     case notSubtitle(path: String)
     case noSubtitles(folderName: String)
     case unreadableFolder(folderName: String)
 
     public var message: String {
         switch self {
-        case .mkv:
-            return "MKV support is coming."
         case let .notSubtitle(path):
-            return "\(FileIntake.lastComponent(path)) is not a .sup subtitle file, so it was skipped."
+            return "\(FileIntake.lastComponent(path)) is not a .sup or .mkv file, so it was skipped."
         case let .noSubtitles(folderName):
-            return "No .sup files were found in \(folderName)."
+            return "No .sup or .mkv files were found in \(folderName)."
         case let .unreadableFolder(folderName):
             return "Could not look inside \(folderName)."
         }
@@ -57,7 +54,7 @@ public enum IntakeNotice: Equatable, Sendable {
 
     public var path: String? {
         switch self {
-        case let .mkv(path), let .notSubtitle(path):
+        case let .notSubtitle(path):
             return path
         case .noSubtitles, .unreadableFolder:
             return nil
@@ -67,19 +64,19 @@ public enum IntakeNotice: Equatable, Sendable {
     /// File-shaped notices become a row. Folder-shaped notices become a banner.
     public var isFile: Bool {
         switch self {
-        case .mkv, .notSubtitle: return true
+        case .notSubtitle: return true
         case .noSubtitles, .unreadableFolder: return false
         }
     }
 }
 
-/// `.sup` files to convert, plus polite notes for everything else.
+/// `.sup` and `.mkv` files to convert, plus polite notes for everything else.
 public struct IntakeResult: Equatable, Sendable {
-    public var supPaths: [String]
+    public var sourcePaths: [String]
     public var notices: [IntakeNotice]
 
-    public init(supPaths: [String], notices: [IntakeNotice]) {
-        self.supPaths = supPaths
+    public init(sourcePaths: [String], notices: [IntakeNotice]) {
+        self.sourcePaths = sourcePaths
         self.notices = notices
     }
 }
@@ -87,21 +84,21 @@ public struct IntakeResult: Equatable, Sendable {
 /// Sorts dropped paths into subtitle files, folders of subtitle files, and notes.
 public enum FileIntake {
     public static func collect(paths: [String], listing: DirectoryListing) -> IntakeResult {
-        var supPaths: [String] = []
+        var sourcePaths: [String] = []
         var notices: [IntakeNotice] = []
-        var seenSup: Set<String> = []
+        var seenSources: Set<String> = []
         var seenDirectories: Set<String> = []
         for path in paths {
             let cleaned = trimTrailingSlash(path)
             if cleaned.isEmpty { continue }
             if listing.isDirectory(cleaned) {
-                let before = supPaths.count
+                let before = sourcePaths.count
                 let seenBefore = seenDirectories.contains(listing.identity(cleaned))
                 walk(
                     cleaned,
                     listing: listing,
-                    supPaths: &supPaths,
-                    seenSup: &seenSup,
+                    sourcePaths: &sourcePaths,
+                    seenSources: &seenSources,
                     seenDirectories: &seenDirectories,
                     notices: &notices
                 )
@@ -109,21 +106,21 @@ public enum FileIntake {
                     if case let .unreadableFolder(name) = notice { return name == lastComponent(cleaned) }
                     return false
                 }
-                if !seenBefore && supPaths.count == before && !unreadable {
+                if !seenBefore && sourcePaths.count == before && !unreadable {
                     notices.append(.noSubtitles(folderName: lastComponent(cleaned)))
                 }
             } else {
-                classifyFile(cleaned, supPaths: &supPaths, seenSup: &seenSup, notices: &notices)
+                classifyFile(cleaned, sourcePaths: &sourcePaths, seenSources: &seenSources, notices: &notices)
             }
         }
-        return IntakeResult(supPaths: supPaths, notices: notices)
+        return IntakeResult(sourcePaths: sourcePaths, notices: notices)
     }
 
     private static func walk(
         _ directory: String,
         listing: DirectoryListing,
-        supPaths: inout [String],
-        seenSup: inout Set<String>,
+        sourcePaths: inout [String],
+        seenSources: inout Set<String>,
         seenDirectories: inout Set<String>,
         notices: inout [IntakeNotice]
     ) {
@@ -143,36 +140,38 @@ public enum FileIntake {
                 walk(
                     cleaned,
                     listing: listing,
-                    supPaths: &supPaths,
-                    seenSup: &seenSup,
+                    sourcePaths: &sourcePaths,
+                    seenSources: &seenSources,
                     seenDirectories: &seenDirectories,
                     notices: &notices
                 )
-            } else if isSup(cleaned) {
-                appendSup(cleaned, supPaths: &supPaths, seenSup: &seenSup)
+            } else if isSource(cleaned) {
+                appendSource(cleaned, sourcePaths: &sourcePaths, seenSources: &seenSources)
             }
         }
     }
 
     private static func classifyFile(
         _ path: String,
-        supPaths: inout [String],
-        seenSup: inout Set<String>,
+        sourcePaths: inout [String],
+        seenSources: inout Set<String>,
         notices: inout [IntakeNotice]
     ) {
-        if isSup(path) {
-            appendSup(path, supPaths: &supPaths, seenSup: &seenSup)
-        } else if isMkv(path) {
-            notices.append(.mkv(path: path))
+        if isSource(path) {
+            appendSource(path, sourcePaths: &sourcePaths, seenSources: &seenSources)
         } else {
             notices.append(.notSubtitle(path: path))
         }
     }
 
-    private static func appendSup(_ path: String, supPaths: inout [String], seenSup: inout Set<String>) {
-        if seenSup.insert(path).inserted {
-            supPaths.append(path)
+    private static func appendSource(_ path: String, sourcePaths: inout [String], seenSources: inout Set<String>) {
+        if seenSources.insert(path).inserted {
+            sourcePaths.append(path)
         }
+    }
+
+    private static func isSource(_ path: String) -> Bool {
+        isSup(path) || isMkv(path)
     }
 
     static func isSup(_ path: String) -> Bool {

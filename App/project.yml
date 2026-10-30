@@ -46,6 +46,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.PGS2SRT
         PRODUCT_NAME: PGS2SRT
         GENERATE_INFOPLIST_FILE: YES
+        # Document types (Blu-ray .sup, folders, and .mkv) live in Info.plist.
         INFOPLIST_FILE: Info.plist
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"

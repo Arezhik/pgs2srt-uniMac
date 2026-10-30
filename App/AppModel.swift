@@ -31,6 +31,9 @@ final class AppModel: ObservableObject {
         queue.confirmReplace = { path in
             await OverwritePrompt.ask(outputPath: path)
         }
+        queue.chooseTrack = { name, tracks, suggested in
+            await TrackPrompt.ask(fileName: name, tracks: tracks, suggestedTrackID: suggested)
+        }
         AppModel.shared = self
         let pending = AppDelegate.setDeliver { urls in
             let urls = urls
@@ -146,7 +149,7 @@ final class AppModel: ObservableObject {
     func showOpenPanel() {
         let panel = NSOpenPanel()
         panel.title = "Open Subtitles"
-        panel.message = "Choose .sup files or a folder. An .mkv can be chosen too, but those are not converted yet."
+        panel.message = "Choose .sup files, .mkv files, or a folder."
         panel.prompt = "Open"
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -203,7 +206,8 @@ final class AppModel: ObservableObject {
             listing: .live,
             convert: { work in
                 try await TranscriptionPipeline.run(work, recognizer: VisionOCR())
-            }
+            },
+            mkv: .live
         )
     }
 
@@ -456,6 +460,168 @@ enum RevealPrompt {
             continuation.resume(returning: choice)
         }
     }
+}
+
+/// Sheet that lists the PGS tracks in one MKV. Convert uses the selected track. Skip leaves the file alone.
+@MainActor
+enum TrackPrompt {
+    private static var active: Session?
+
+    static func ask(fileName: String, tracks: [PGSSubtitleTrack], suggestedTrackID: Int) async -> MKVTrackChoice {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<MKVTrackChoice, Never>) in
+                let session = Session(tracks: tracks, suggestedTrackID: suggestedTrackID, continuation: continuation)
+                active = session
+                session.present(fileName: fileName)
+            }
+        } onCancel: {
+            Task { @MainActor in
+                active?.cancel()
+            }
+        }
+    }
+
+    @MainActor
+    private final class Session: NSObject {
+        private let tracks: [PGSSubtitleTrack]
+        private let suggestedTrackID: Int
+        private var continuation: CheckedContinuation<MKVTrackChoice, Never>?
+        private var cancelled = false
+        private var alert: NSAlert?
+        private var host: NSWindow?
+        private var buttons: [NSButton] = []
+
+        init(tracks: [PGSSubtitleTrack], suggestedTrackID: Int, continuation: CheckedContinuation<MKVTrackChoice, Never>) {
+            self.tracks = tracks
+            self.suggestedTrackID = suggestedTrackID
+            self.continuation = continuation
+        }
+
+        func present(fileName: String) {
+            if cancelled {
+                finish(choice: .cancel)
+                return
+            }
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Choose a subtitle track"
+            alert.informativeText = "\(fileName) has these PGS tracks."
+            alert.addButton(withTitle: "Convert")
+            alert.addButton(withTitle: "Skip")
+            if alert.buttons.count > 1 {
+                alert.buttons[1].keyEquivalent = "\u{1b}"
+            }
+            let accessory = makeAccessory()
+            alert.accessoryView = accessory.view
+            buttons = accessory.buttons
+            self.alert = alert
+            let host = QueueWindow.frontmost() ?? NSApp.keyWindow ?? NSApp.mainWindow
+            self.host = host
+            if let host {
+                alert.beginSheetModal(for: host) { response in
+                    let response = response
+                    Task { @MainActor in
+                        TrackPrompt.active?.finish(response: response)
+                    }
+                }
+            } else {
+                finish(response: alert.runModal())
+            }
+        }
+
+        func cancel() {
+            cancelled = true
+            if let host, let sheet = alert?.window, host.attachedSheet === sheet {
+                host.endSheet(sheet)
+                return
+            }
+            finish(choice: .cancel)
+        }
+
+        func finish(response: NSApplication.ModalResponse) {
+            if cancelled {
+                finish(choice: .cancel)
+                return
+            }
+            switch response {
+            case .alertFirstButtonReturn:
+                finish(choice: .convert(trackID: selectedTrackID()))
+            default:
+                finish(choice: .skip)
+            }
+        }
+
+        private func finish(choice: MKVTrackChoice) {
+            guard let continuation else { return }
+            self.continuation = nil
+            if TrackPrompt.active === self {
+                TrackPrompt.active = nil
+            }
+            continuation.resume(returning: choice)
+        }
+
+        private func selectedTrackID() -> Int {
+            if let button = buttons.first(where: { $0.state == .on }) {
+                return button.tag
+            }
+            return tracks.first { $0.id == suggestedTrackID }?.id ?? tracks.first?.id ?? suggestedTrackID
+        }
+
+        private func makeAccessory() -> (view: NSView, buttons: [NSButton]) {
+            let row: CGFloat = 24
+            let width: CGFloat = 460
+            let contentHeight = max(row, CGFloat(tracks.count) * row)
+            // Flipped so the first track sits at the top, including inside the scroller.
+            let content = TopDownView(frame: NSRect(x: 0, y: 0, width: width, height: contentHeight))
+            var made: [NSButton] = []
+            let suggested = tracks.contains(where: { $0.id == suggestedTrackID }) ? suggestedTrackID : tracks.first?.id
+            var y: CGFloat = 0
+            for track in tracks {
+                let button = NSButton(
+                    radioButtonWithTitle: Self.label(track),
+                    target: self,
+                    action: #selector(pick(_:))
+                )
+                button.frame = NSRect(x: 0, y: y, width: width - 4, height: row)
+                button.tag = track.id
+                button.state = track.id == suggested ? .on : .off
+                button.lineBreakMode = .byTruncatingTail
+                content.addSubview(button)
+                made.append(button)
+                y += row
+            }
+            let visible = min(contentHeight, row * 12)
+            if contentHeight <= visible {
+                return (content, made)
+            }
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: visible))
+            scroll.hasVerticalScroller = true
+            scroll.drawsBackground = false
+            scroll.documentView = content
+            return (scroll, made)
+        }
+
+        @objc private func pick(_ sender: NSButton) {}
+
+        private static func label(_ track: PGSSubtitleTrack) -> String {
+            var parts = ["\(track.number)", track.displayLanguage]
+            if !track.name.isEmpty {
+                parts.append(track.name)
+            }
+            var flags: [String] = []
+            if track.forced { flags.append("Forced") }
+            if track.isDefault { flags.append("Default") }
+            if !flags.isEmpty {
+                parts.append(flags.joined(separator: ", "))
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+}
+
+/// Top-left origin, so the first radio button is the one at the top of the sheet.
+private final class TopDownView: NSView {
+    override var isFlipped: Bool { true }
 }
 
 enum LanguageChoices {

@@ -28,6 +28,8 @@ public struct ConversionPreferences: Equatable, Sendable {
     public var existingFile: ExistingSubtitleAction
     public var concurrency: Int
     public var experimentalItalics: Bool
+    /// When on, each MKV asks which PGS track to extract. Off uses English, or the first PGS track.
+    public var chooseMKVTrack: Bool
 
     public static let defaultLanguage = "en-US"
     public static let defaultConcurrency = 4
@@ -39,13 +41,15 @@ public struct ConversionPreferences: Equatable, Sendable {
         language: String,
         existingFile: ExistingSubtitleAction,
         concurrency: Int,
-        experimentalItalics: Bool
+        experimentalItalics: Bool,
+        chooseMKVTrack: Bool = false
     ) {
         self.placement = placement
         self.language = language
         self.existingFile = existingFile
         self.concurrency = concurrency
         self.experimentalItalics = experimentalItalics
+        self.chooseMKVTrack = chooseMKVTrack
     }
 
     public static let `default` = ConversionPreferences(
@@ -53,7 +57,8 @@ public struct ConversionPreferences: Equatable, Sendable {
         language: defaultLanguage,
         existingFile: .overwrite,
         concurrency: defaultConcurrency,
-        experimentalItalics: false
+        experimentalItalics: false,
+        chooseMKVTrack: false
     )
 
     /// Language, concurrency, and folder text the queue can use without further checks.
@@ -77,6 +82,7 @@ public enum ConversionPreferenceKey {
     public static let existingFile = "existingFileAction"
     public static let concurrency = "concurrency"
     public static let italics = "experimentalItalics"
+    public static let chooseMKVTrack = "chooseMKVTrack"
 
     public static let placementNextToSource = "nextToSource"
     public static let placementFolder = "folder"
@@ -107,6 +113,7 @@ public enum ConversionPreferenceStore {
         defaults.set(preferences.existingFile.rawValue, forKey: ConversionPreferenceKey.existingFile)
         defaults.set(preferences.concurrency, forKey: ConversionPreferenceKey.concurrency)
         defaults.set(preferences.experimentalItalics, forKey: ConversionPreferenceKey.italics)
+        defaults.set(preferences.chooseMKVTrack, forKey: ConversionPreferenceKey.chooseMKVTrack)
     }
 
     private static func read(from defaults: UserDefaults) -> ConversionPreferences {
@@ -128,12 +135,14 @@ public enum ConversionPreferenceStore {
             concurrency = defaults.integer(forKey: ConversionPreferenceKey.concurrency)
         }
         let italics = defaults.bool(forKey: ConversionPreferenceKey.italics)
+        let chooseMKVTrack = defaults.bool(forKey: ConversionPreferenceKey.chooseMKVTrack)
         return ConversionPreferences(
             placement: placement,
             language: language,
             existingFile: existing,
             concurrency: concurrency,
-            experimentalItalics: italics
+            experimentalItalics: italics,
+            chooseMKVTrack: chooseMKVTrack
         )
     }
 }
