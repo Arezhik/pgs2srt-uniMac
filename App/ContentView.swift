@@ -138,7 +138,7 @@ struct ContentView: View {
 
     private func queueRow(_ item: ConversionItem) -> some View {
         let _ = model.reviewRevision
-        QueueRow(
+        return QueueRow(
             item: item,
             selected: model.selectedItemID == item.id,
             summary: model.summary(for: item),
