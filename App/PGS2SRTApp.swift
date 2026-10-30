@@ -136,6 +136,12 @@ struct AppCommands: Commands {
             Button("Next File to Review") { review?.nextFile() }
                 .disabled(review?.canNextFile != true)
         }
+
+        CommandGroup(replacing: .help) {
+            Button("Export Debug Log…") {
+                model.exportDebugLog()
+            }
+        }
     }
 }
 

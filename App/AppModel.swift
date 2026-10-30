@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
     static weak var shared: AppModel?
 
     init() {
+        DebugLog.shared.configure(directory: DebugLog.libraryLogsDirectory, mirror: { AppLog.write($0) })
         let preferences = ConversionPreferenceStore.load(from: .standard)
         self.preferences = preferences
         let queue = ConversionQueue(preferences: preferences, services: Self.makeServices())
@@ -40,6 +41,7 @@ final class AppModel: ObservableObject {
         queue.chooseTrack = { name, tracks, suggested in
             await TrackPrompt.ask(fileName: name, tracks: tracks, suggestedTrackID: suggested)
         }
+        logLaunch()
         AppModel.shared = self
         let pending = AppDelegate.setDeliver { urls in
             let urls = urls
@@ -49,6 +51,49 @@ final class AppModel: ObservableObject {
         }
         if !pending.isEmpty {
             importURLs(pending)
+        }
+        logToolDetection()
+    }
+
+    /// Help menu and the corner button. The file lands on the Desktop, with a save panel if that fails.
+    func exportDebugLog() {
+        let settings = preferences.logDescription
+        Task {
+            let environment = await Task.detached(priority: .userInitiated) {
+                DebugMachine.environment(settings: settings)
+            }.value
+            let name = DebugLogDocument.fileName(at: Date())
+            let destination = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent("Desktop", isDirectory: true)
+                .appendingPathComponent(name)
+            DebugLog.shared.record(.lifecycle, "Exporting debug log to \(destination.path)")
+            let text = DebugLogDocument.document(
+                environment: environment,
+                logText: DebugLog.shared.recentText(),
+                homeDirectory: NSHomeDirectory()
+            )
+            DebugLogExporter.write(text: text, fileName: name)
+        }
+    }
+
+    private func logLaunch() {
+        let system = ProcessInfo.processInfo.operatingSystemVersionString
+        DebugLog.shared.record(.lifecycle, "Launched \(AppVersion.marketing) (\(AppVersion.build)), \(system)")
+        DebugLog.shared.record(.lifecycle, "Settings \(preferences.logDescription)")
+    }
+
+    private func logToolDetection() {
+        Task.detached {
+            let tools = MKVToolNix.locate()
+            if let tools {
+                let version = MKVToolNix.version(of: tools.mkvmerge) ?? "unknown"
+                DebugLog.shared.record(
+                    .mkv,
+                    "MKVToolNix found mkvmerge \(tools.mkvmerge), mkvextract \(tools.mkvextract), version \(version)"
+                )
+            } else {
+                DebugLog.shared.record(.mkv, "MKVToolNix not found", isError: true)
+            }
         }
     }
 
@@ -180,8 +225,12 @@ final class AppModel: ObservableObject {
 
     func updatePreferences(_ preferences: ConversionPreferences) {
         let preferences = preferences.normalized
+        let changed = preferences != self.preferences
         self.preferences = preferences
         queue.preferences = preferences
+        if changed {
+            DebugLog.shared.record(.lifecycle, "Settings \(preferences.logDescription)")
+        }
     }
 
     private func refresh() {
@@ -466,6 +515,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             return .terminateCancel
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        DebugLog.shared.record(.lifecycle, "Quit")
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

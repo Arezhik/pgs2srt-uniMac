@@ -829,6 +829,69 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertTrue(script.fileExists("/films/Only.srt"))
     }
 
+    func testMkvLogsWhenTheTempFolderIsRemoved() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pgs-log-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            DebugLog.shared.reset()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        DebugLog.shared.configure(directory: directory, homeDirectory: "/Users/ada")
+
+        let mkv = MKVDouble(json: englishThenJapanese)
+        let queue = await makeQueue(script: Script(), mkv: mkv.client()) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let sawDestination = await waitUntil(queue) { _ in !mkv.destinations.isEmpty }
+        XCTAssertTrue(sawDestination)
+        let destination = try XCTUnwrap(mkv.destinations.first)
+        let folder = Self.tempFolderName(destination)
+        let finished = await waitUntil(queue) { _ in
+            DebugLog.shared.recentText().contains("Temp folder removed \(folder)")
+        }
+        XCTAssertTrue(finished)
+        var text = DebugLog.shared.recentText()
+        XCTAssertTrue(text.contains("[mkv] info Temp folder removed \(folder)"))
+        let finishedAt = try XCTUnwrap(text.range(of: "Finished Movie.mkv"))
+        let removedAt = try XCTUnwrap(text.range(of: "Temp folder removed \(folder)"))
+        XCTAssertLessThan(finishedAt.lowerBound, removedAt.lowerBound)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: (destination as NSString).deletingLastPathComponent))
+
+        let gate = Gate()
+        defer { gate.openAll() }
+        let cancelling = MKVDouble(json: englishThenJapanese)
+        cancelling.beforeReturn = { _ in
+            try await gate.wait()
+        }
+        let cancelQueue = await makeQueue(script: Script(), mkv: cancelling.client()) { _ in
+            sampleResult()
+        }
+        await cancelQueue.add(paths: ["/films/Other.mkv"])
+        let extracting = await waitUntil(cancelQueue) { _ in cancelling.enteredExtract }
+        XCTAssertTrue(extracting)
+        let id = await cancelQueue.items[0].id
+        await cancelQueue.cancel(id: id)
+        let cancelDestination = try XCTUnwrap(cancelling.destinations.first)
+        let cancelFolder = Self.tempFolderName(cancelDestination)
+        let loggedCancel = await waitUntil(cancelQueue) { _ in
+            DebugLog.shared.recentText().contains("Temp folder removed \(cancelFolder)")
+        }
+        XCTAssertTrue(loggedCancel)
+        text = DebugLog.shared.recentText()
+        XCTAssertTrue(text.contains("[mkv] info Temp folder removed \(cancelFolder)"))
+        let cancelledAt = try XCTUnwrap(text.range(of: "Cancelled Other.mkv"))
+        let cancelRemovedAt = try XCTUnwrap(text.range(of: "Temp folder removed \(cancelFolder)"))
+        XCTAssertLessThan(cancelledAt.lowerBound, cancelRemovedAt.lowerBound)
+        let status = await cancelQueue.items[0].status
+        XCTAssertEqual(status, .cancelled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: (cancelDestination as NSString).deletingLastPathComponent))
+    }
+
+    private static func tempFolderName(_ supPath: String) -> String {
+        ((supPath as NSString).deletingLastPathComponent as NSString).lastPathComponent
+    }
+
     func testMkvUsesTheEnglishTrackAndNamesTheSrtAfterTheMkv() async throws {
         let mkv = MKVDouble(json: englishThenJapanese)
         let script = Script()

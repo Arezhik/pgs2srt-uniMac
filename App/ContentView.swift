@@ -163,7 +163,18 @@ struct ContentView: View {
             }
             .font(.callout)
             .foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 12)
+            Button {
+                model.exportDebugLog()
+            } label: {
+                Text("Export Debug Log")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .help("Save a debug log on the Desktop to send to the developer")
+            .fixedSize()
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

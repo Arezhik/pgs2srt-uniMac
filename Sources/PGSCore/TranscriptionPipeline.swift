@@ -112,7 +112,24 @@ public struct TranscriptionPipeline: Sendable {
         recognizer: any SubtitleRecognizing,
         progress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> TranscriptionResult {
-        let cues = try decoder.decode(data)
+        let started = Date()
+        DebugLog.shared.record(.decode, "Decode started, \(data.count) bytes")
+        let cues: [SubtitleCue]
+        do {
+            cues = try decoder.decode(data)
+        } catch {
+            let duration = DebugLogFormatting.duration(since: started)
+            if error is CancellationError {
+                DebugLog.shared.record(.decode, "Decode cancelled, \(duration)")
+            } else {
+                DebugLog.shared.record(.error, "Decode failed, \(duration): \(error)", isError: true)
+            }
+            throw error
+        }
+        DebugLog.shared.record(
+            .decode,
+            "Decode finished, \(cues.count) cues, \(DebugLogFormatting.duration(since: started))"
+        )
         return try await transcribe(cues: cues, recognizer: recognizer, progress: progress)
     }
 
@@ -122,13 +139,63 @@ public struct TranscriptionPipeline: Sendable {
         recognizer: any SubtitleRecognizing,
         progress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> TranscriptionResult {
+        let started = Date()
+        let languageList = languages.isEmpty ? "default" : languages.joined(separator: ", ")
+        // Counts and recognizer errors only. The recognized subtitle text is not logged.
+        DebugLog.shared.record(.ocr, "OCR started, \(cues.count) cues, languages \(languageList)")
         let total = cues.count
         if total == 0 {
+            DebugLog.shared.record(
+                .ocr,
+                "OCR finished, 0 cues, 0 failed, \(DebugLogFormatting.duration(since: started))"
+            )
             return TranscriptionResult(cues: [], failures: [], srt: try SRTWriter(lineEnding: lineEnding).write([]), captured: [])
         }
 
-        var outcomes = [CueOutcome?](repeating: nil, count: total)
+        let outcomes: [CueOutcome?]
+        do {
+            outcomes = try await recognizeAll(cues: cues, recognizer: recognizer, progress: progress)
+        } catch {
+            let duration = DebugLogFormatting.duration(since: started)
+            if error is CancellationError {
+                DebugLog.shared.record(.ocr, "OCR cancelled, \(duration)")
+            } else {
+                DebugLog.shared.record(.error, "OCR failed, \(duration): \(error)", isError: true)
+            }
+            throw error
+        }
+
+        var srtCues: [SRTCue] = []
+        var failures: [CueRecognitionFailure] = []
+        var captured: [CapturedReviewCue] = []
+        srtCues.reserveCapacity(total)
+        captured.reserveCapacity(total)
+        for outcome in outcomes {
+            guard let outcome else { continue }
+            srtCues.append(outcome.cue)
+            captured.append(outcome.captured)
+            if let failure = outcome.failure {
+                failures.append(failure)
+            }
+        }
+        let srt = try SRTWriter(lineEnding: lineEnding).write(srtCues)
+        let reasons = Array(Set(failures.map(\.message))).sorted().joined(separator: "; ")
+        let reasonText = reasons.isEmpty ? "" : " (\(reasons))"
+        DebugLog.shared.record(
+            .ocr,
+            "OCR finished, \(total) cues, \(failures.count) failed\(reasonText), \(DebugLogFormatting.duration(since: started))"
+        )
+        return TranscriptionResult(cues: srtCues, failures: failures, srt: srt, captured: captured)
+    }
+
+    private func recognizeAll(
+        cues: [SubtitleCue],
+        recognizer: any SubtitleRecognizing,
+        progress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> [CueOutcome?] {
+        let total = cues.count
         let limit = maxConcurrent
+        var outcomes = [CueOutcome?](repeating: nil, count: total)
         try await withThrowingTaskGroup(of: (Int, CueOutcome).self) { group in
             var nextIndex = 0
             var running = 0
@@ -153,22 +220,7 @@ public struct TranscriptionPipeline: Sendable {
                 scheduleNext()
             }
         }
-
-        var srtCues: [SRTCue] = []
-        var failures: [CueRecognitionFailure] = []
-        var captured: [CapturedReviewCue] = []
-        srtCues.reserveCapacity(total)
-        captured.reserveCapacity(total)
-        for outcome in outcomes {
-            guard let outcome else { continue }
-            srtCues.append(outcome.cue)
-            captured.append(outcome.captured)
-            if let failure = outcome.failure {
-                failures.append(failure)
-            }
-        }
-        let srt = try SRTWriter(lineEnding: lineEnding).write(srtCues)
-        return TranscriptionResult(cues: srtCues, failures: failures, srt: srt, captured: captured)
+        return outcomes
     }
 
     private struct CueOutcome: Sendable {
