@@ -77,6 +77,30 @@ public enum MKVToolNix {
         }
         return MKVToolPaths(mkvmerge: mkvmerge, mkvextract: mkvextract)
     }
+
+    /// The first line of `mkvmerge --version`, such as `mkvmerge v86.0 ('Winter') 64-bit`.
+    public static func version(of executable: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["--version"]
+        process.standardInput = FileHandle.nullDevice
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = (try? stdout.fileHandleForReading.readToEnd()) ?? Data()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        let line = text.split(whereSeparator: \.isNewline).first.map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let line, !line.isEmpty else { return nil }
+        return line
+    }
 }
 
 /// One run of an external command. Cancelling the calling task terminates the process.
@@ -210,7 +234,11 @@ private final class CommandRunner: @unchecked Sendable {
     }
 
     private func blocking(executable: String, arguments: [String]) throws -> MKVCommandResult {
-        if isCancelled { throw CancellationError() }
+        let command = MKVCommandFormatting.line(executable: executable, arguments: arguments)
+        if isCancelled {
+            MKVCommandFormatting.logCancelled(command)
+            throw CancellationError()
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -219,11 +247,16 @@ private final class CommandRunner: @unchecked Sendable {
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-        guard adopt(process) else { throw CancellationError() }
+        guard adopt(process) else {
+            MKVCommandFormatting.logCancelled(command)
+            throw CancellationError()
+        }
+        DebugLog.shared.record(.mkv, "command \(command)")
         do {
             try process.run()
         } catch {
             forget()
+            DebugLog.shared.record(.error, "command \(command) could not start", isError: true)
             throw MKVFailure.couldNotStartTool
         }
         if isCancelled {
@@ -246,8 +279,43 @@ private final class CommandRunner: @unchecked Sendable {
         group.wait()
         let status = process.terminationStatus
         forget()
-        if isCancelled { throw CancellationError() }
+        let failed = status != 0
+        DebugLog.shared.record(.mkv, "exit \(status)", isError: failed)
+        if let stderrText = MKVCommandFormatting.stderrText(stderr.data) {
+            DebugLog.shared.record(.mkv, "stderr \(stderrText)", isError: failed)
+        }
+        if isCancelled {
+            MKVCommandFormatting.logCancelled(command)
+            throw CancellationError()
+        }
         return MKVCommandResult(status: status, standardOutput: stdout.data, standardError: stderr.data)
+    }
+}
+
+/// How an MKVToolNix invocation is written into the debug log. Standard output stays out.
+private enum MKVCommandFormatting {
+    static func line(executable: String, arguments: [String]) -> String {
+        ([executable] + arguments).map { part in
+            if part.contains(where: { $0 == " " || $0 == "\"" }) {
+                return "\"\(part.replacingOccurrences(of: "\"", with: "\\\""))\""
+            }
+            return part
+        }.joined(separator: " ")
+    }
+
+    static func stderrText(_ data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        let raw = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        let flat = raw.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let trimmed = flat.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let limit = 2000
+        if trimmed.count <= limit { return trimmed }
+        return String(trimmed.prefix(limit)) + "…"
+    }
+
+    static func logCancelled(_ command: String) {
+        DebugLog.shared.record(.mkv, "command cancelled \(command)")
     }
 }
 

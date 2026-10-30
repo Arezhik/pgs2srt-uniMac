@@ -192,6 +192,7 @@ public final class ConversionQueue {
     private let services: ConversionServices
     private let progressSink = ProgressSink()
     private var tasks: [UUID: Task<Void, Never>] = [:]
+    private var startedAt: [UUID: Date] = [:]
     private var pumpTask: Task<Void, Never>?
     private var reserved: Set<String> = []
     private var batch = BatchOutcome.zero
@@ -232,12 +233,16 @@ public final class ConversionQueue {
             }
         }
         for path in fresh {
+            let id = UUID()
+            startedAt[id] = Date()
+            let name = FileIntake.lastComponent(path)
             items.append(ConversionItem(
-                id: UUID(),
+                id: id,
                 sourcePath: path,
-                name: FileIntake.lastComponent(path),
+                name: name,
                 status: .waiting
             ))
+            DebugLog.shared.record(.queue, "Added \(name) (\(Self.byteCount(path)), \(Self.fileKind(path))) \(path)")
         }
         for notice in intake.notices where notice.isFile {
             guard let path = notice.path else { continue }
@@ -247,12 +252,14 @@ public final class ConversionQueue {
                 name: FileIntake.lastComponent(path),
                 status: .skipped(notice.message)
             ))
+            DebugLog.shared.record(.queue, "Skipped \(notice.message)")
             if batchOpen {
                 batch.skipped += 1
             }
         }
         for notice in intake.notices where !notice.isFile {
             banners.append(notice.message)
+            DebugLog.shared.record(.queue, notice.message)
         }
         publish()
         if !fresh.isEmpty {
@@ -278,6 +285,9 @@ public final class ConversionQueue {
 
     public func cancelAll() {
         let ids = items.filter { $0.status.isActive }.map(\.id)
+        if !ids.isEmpty {
+            DebugLog.shared.record(.queue, "Cancel all")
+        }
         for id in ids {
             cancel(id: id)
         }
@@ -379,12 +389,18 @@ public final class ConversionQueue {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard case .waiting = items[index].status else { return }
         let source = items[index].sourcePath
+        let fileName = items[index].name
         if Task.isCancelled {
             outputFolderOverrides.removeValue(forKey: source)
             setStatus(id, .cancelled)
             return
         }
         let outputFolder = outputFolderOverrides.removeValue(forKey: source)
+        let kind = FileIntake.isMkv(source) ? "mkv" : "sup"
+        DebugLog.shared.record(.queue, "Start \(fileName) (\(kind)) \(preferences.logDescription)")
+        if let outputFolder, !outputFolder.isEmpty {
+            DebugLog.shared.record(.queue, "Output folder override \(outputFolder) for \(fileName)")
+        }
         if FileIntake.isMkv(source) {
             await performMKV(id: id, source: source, outputFolder: outputFolder)
         } else {
@@ -403,25 +419,46 @@ public final class ConversionQueue {
     /// The temporary `.sup` and its folder are removed on every way out.
     private func performMKV(id: UUID, source: String, outputFolder: String?) async {
         guard isStillRunning(id) else { return }
+        let fileName = FileIntake.lastComponent(source)
         guard let tools = services.mkv.locate() else {
+            DebugLog.shared.record(.mkv, "MKVToolNix not found for \(fileName)")
             setStatus(id, .skipped(MKVCopy.needsToolNix))
             return
         }
+        DebugLog.shared.record(
+            .mkv,
+            "MKVToolNix mkvmerge \(tools.mkvmerge), mkvextract \(tools.mkvextract)"
+        )
         guard markExtracting(id) else { return }
 
         let parsed: [PGSSubtitleTrack]
+        let identifyStarted = Date()
+        DebugLog.shared.record(.mkv, "Identify started \(fileName)")
         do {
             try Task.checkCancellation()
             let json = try await services.mkv.identify(tools.mkvmerge, source)
             try Task.checkCancellation()
             parsed = try MKVIdentify.tracks(in: json)
         } catch is CancellationError {
+            DebugLog.shared.record(
+                .mkv,
+                "Identify cancelled \(fileName), \(DebugLogFormatting.duration(since: identifyStarted))"
+            )
             setStatus(id, .cancelled)
             return
         } catch {
+            DebugLog.shared.record(
+                .error,
+                "Identify failed \(fileName), \(DebugLogFormatting.duration(since: identifyStarted)): \(error)",
+                isError: true
+            )
             setStatus(id, .failed(ConversionFailureText.message(for: error)))
             return
         }
+        DebugLog.shared.record(
+            .mkv,
+            "Identify finished \(fileName), \(DebugLogFormatting.duration(since: identifyStarted)), tracks \(Self.trackSummary(parsed))"
+        )
 
         guard let suggested = MKVIdentify.preferredTrack(in: parsed) else {
             setStatus(id, .skipped(MKVCopy.noPGS))
@@ -430,7 +467,8 @@ public final class ConversionQueue {
 
         let track: PGSSubtitleTrack
         if preferences.chooseMKVTrack, let chooseTrack {
-            let choice = await chooseTrack(FileIntake.lastComponent(source), parsed, suggested.id)
+            DebugLog.shared.record(.mkv, "Asking which track in \(fileName)")
+            let choice = await chooseTrack(fileName, parsed, suggested.id)
             if Task.isCancelled || !isStillRunning(id) {
                 setStatus(id, .cancelled)
                 return
@@ -438,15 +476,19 @@ public final class ConversionQueue {
             switch choice {
             case let .convert(trackID):
                 track = parsed.first { $0.id == trackID } ?? suggested
+                DebugLog.shared.record(.mkv, "Track chosen \(track.id) \(track.language) for \(fileName)")
             case .skip:
+                DebugLog.shared.record(.mkv, "Track choice skipped \(fileName)")
                 setStatus(id, .skipped(MKVCopy.skippedTrack))
                 return
             case .cancel:
+                DebugLog.shared.record(.mkv, "Track choice cancelled \(fileName)")
                 setStatus(id, .cancelled)
                 return
             }
         } else {
             track = suggested
+            DebugLog.shared.record(.mkv, "Track chosen \(track.id) \(track.language) for \(fileName)")
         }
 
         guard let prepared = await resolveDestination(id: id, source: source, outputFolder: outputFolder) else {
@@ -463,17 +505,32 @@ public final class ConversionQueue {
         defer { TemporaryExtract.remove(folder) }
 
         let supPath = folder.appendingPathComponent("subtitles.sup").path
+        let extractStarted = Date()
+        DebugLog.shared.record(.mkv, "Extract started \(fileName) track \(track.id)")
         do {
             try Task.checkCancellation()
             try await services.mkv.extract(tools.mkvextract, source, track.id, supPath)
             try Task.checkCancellation()
         } catch is CancellationError {
+            DebugLog.shared.record(
+                .mkv,
+                "Extract cancelled \(fileName), \(DebugLogFormatting.duration(since: extractStarted))"
+            )
             setStatus(id, .cancelled)
             return
         } catch {
+            DebugLog.shared.record(
+                .error,
+                "Extract failed \(fileName), \(DebugLogFormatting.duration(since: extractStarted)): \(error)",
+                isError: true
+            )
             setStatus(id, .failed(ConversionFailureText.message(for: error)))
             return
         }
+        DebugLog.shared.record(
+            .mkv,
+            "Extract finished \(fileName) track \(track.id), \(DebugLogFormatting.duration(since: extractStarted))"
+        )
 
         if Task.isCancelled || !isStillRunning(id) {
             setStatus(id, .cancelled)
@@ -528,11 +585,14 @@ public final class ConversionQueue {
                 rememberedOverwrite = remembered
             }
             switch answer {
-            case .replace:
+            case let .replace(applyToAll):
+                DebugLog.shared.record(.queue, "Overwrite replace \(path) applyToAll=\(applyToAll)")
                 destination = .write(path)
-            case .skip:
+            case let .skip(applyToAll):
+                DebugLog.shared.record(.queue, "Overwrite skip \(path) applyToAll=\(applyToAll)")
                 destination = .skipBecauseExists(path)
             case .cancel:
+                DebugLog.shared.record(.queue, "Overwrite cancel \(path)")
                 setStatus(id, .cancelled)
                 return nil
             }
@@ -559,6 +619,7 @@ public final class ConversionQueue {
         guard let current = items.firstIndex(where: { $0.id == id }), items[current].status.isActive else { return }
         reserved.insert(prepared.path)
         items[current].status = .converting(completed: 0, total: 0)
+        DebugLog.shared.record(.queue, "Convert started \(items[current].name)")
         publish()
         await convert(id: id, readPath: readPath, path: prepared.path, preferences: prepared.preferences)
     }
@@ -584,11 +645,18 @@ public final class ConversionQueue {
     ) async {
         let services = self.services
         let sink = progressSink
+        let fileName = items.first(where: { $0.id == id })?.name ?? FileIntake.lastComponent(readPath)
         do {
             try Task.checkCancellation()
+            let readStarted = Date()
+            DebugLog.shared.record(.queue, "Read started \(fileName)")
             let data = try await offMain {
                 try await services.read(readPath)
             }
+            DebugLog.shared.record(
+                .queue,
+                "Read finished \(fileName), \(data.count) bytes, \(DebugLogFormatting.duration(since: readStarted))"
+            )
             try Task.checkCancellation()
             let work = ConversionWork(
                 data: data,
@@ -604,9 +672,15 @@ public final class ConversionQueue {
             }
             try Task.checkCancellation()
             let srt = result.srt
+            let writeStarted = Date()
+            DebugLog.shared.record(.queue, "Write started \(fileName) \(path)")
             try await offMain {
                 try await services.write(path, srt)
             }
+            DebugLog.shared.record(
+                .queue,
+                "Write finished \(fileName), \(srt.utf8.count) bytes, \(DebugLogFormatting.duration(since: writeStarted))"
+            )
             setStatus(
                 id,
                 .done(
@@ -654,7 +728,9 @@ public final class ConversionQueue {
     private func setStatus(_ id: UUID, _ status: ConversionStatus) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         guard items[index].status.isActive else { return }
+        let name = items[index].name
         items[index].status = status
+        logOutcome(name: name, id: id, status: status)
         if batchOpen {
             switch status {
             case .done: batch.done += 1
@@ -672,7 +748,59 @@ public final class ConversionQueue {
         guard !items.contains(where: \.status.isActive) else { return }
         batchOpen = false
         let outcome = batch
+        DebugLog.shared.record(.queue, "Batch finished. \(outcome.notificationBody)")
         onBatchFinished?(outcome)
+    }
+
+    private func logOutcome(name: String, id: UUID, status: ConversionStatus) {
+        let duration = elapsed(id)
+        switch status {
+        case let .done(cues, unrecognized, path):
+            DebugLog.shared.record(
+                .queue,
+                "Finished \(name): \(cues) cues, \(unrecognized) OCR failed, \(path), \(duration)"
+            )
+        case let .failed(message):
+            DebugLog.shared.record(.error, "Failed \(name): \(message) (\(duration))", isError: true)
+        case .cancelled:
+            DebugLog.shared.record(.queue, "Cancelled \(name) (\(duration))")
+        case let .skipped(message):
+            DebugLog.shared.record(.queue, "Skipped \(name): \(message) (\(duration))")
+        case .waiting, .extracting, .converting:
+            break
+        }
+    }
+
+    private func elapsed(_ id: UUID) -> String {
+        guard let start = startedAt.removeValue(forKey: id) else { return "n/a" }
+        return DebugLogFormatting.duration(since: start)
+    }
+
+    private static func byteCount(_ path: String) -> String {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let number = attributes[.size] as? NSNumber else {
+            return "size unknown"
+        }
+        return "\(number.int64Value) bytes"
+    }
+
+    private static func fileKind(_ path: String) -> String {
+        if FileIntake.isMkv(path) { return "mkv" }
+        if FileIntake.isSup(path) { return "sup" }
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext.isEmpty ? "file" : ext
+    }
+
+    private static func trackSummary(_ tracks: [PGSSubtitleTrack]) -> String {
+        if tracks.isEmpty { return "none" }
+        return tracks.map { track in
+            var text = "\(track.id) \(track.language)"
+            if track.forced { text += " forced" }
+            if track.isDefault { text += " default" }
+            let name = track.name.replacingOccurrences(of: "\n", with: " ")
+            if !name.isEmpty { text += " \"\(name)\"" }
+            return text
+        }.joined(separator: "; ")
     }
 
     private func publish() {
@@ -703,7 +831,14 @@ private enum TemporaryExtract {
     }
 
     static func remove(_ url: URL) {
-        try? FileManager.default.removeItem(at: url)
+        let name = url.lastPathComponent
+        do {
+            try FileManager.default.removeItem(at: url)
+            DebugLog.shared.record(.mkv, "Temp folder removed \(name)")
+        } catch {
+            let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            DebugLog.shared.record(.mkv, "Temp folder removal failed \(name): \(detail)", isWarning: true)
+        }
     }
 }
 
