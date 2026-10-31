@@ -2,12 +2,6 @@ import AppKit
 import SwiftUI
 import PGSCore
 
-enum ReviewScope: String, Hashable {
-    case all
-    case problems
-    case edited
-}
-
 struct ReviewRowSummary: Equatable {
     var statusText: String
     var badge: ReviewProblemBadge?
@@ -66,12 +60,11 @@ final class ReviewFileModel: ObservableObject {
     let itemID: UUID
     private let queue: ConversionQueue
     private let onChange: () -> Void
-    @Published var scope: ReviewScope = .all
+    @Published private(set) var listFilter = ReviewListFilter()
     @Published var selection: Set<UUID> = []
     @Published var searchText = ""
     @Published var showPicturesInList = false
     @Published private(set) var revision = 0
-    private var stickyProblemIDs: Set<UUID>?
     private var suppressedGroupIDs: Set<UUID> = []
     private var didSelectInitial = false
 
@@ -84,6 +77,8 @@ final class ReviewFileModel: ObservableObject {
     var document: CueDocument {
         queue.reviewDocument(for: itemID) ?? .empty
     }
+
+    var scope: ReviewScope { listFilter.scope }
 
     var plannedPath: String { queue.reviewPlannedPath(for: itemID) ?? "" }
     var savedPath: String? { queue.reviewSavedPath(for: itemID) }
@@ -140,16 +135,7 @@ final class ReviewFileModel: ObservableObject {
 
     func visibleCues() -> [ReviewCue] {
         let document = document
-        let base: [ReviewCue]
-        switch scope {
-        case .all:
-            base = document.cues
-        case .problems:
-            let sticky = stickyProblemIDs ?? []
-            base = document.cues.filter { sticky.contains($0.id) }
-        case .edited:
-            base = document.cues.filter(\.isEdited)
-        }
+        let base = document.cues.filter { listFilter.shows($0) }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return base }
         return base.filter {
@@ -159,9 +145,9 @@ final class ReviewFileModel: ObservableObject {
     }
 
     func problemScopeCount() -> Int {
-        if scope == .problems, let stickyProblemIDs {
+        if scope == .problems, let sticky = listFilter.stickyProblemIDs {
             let alive = Set(document.cues.map(\.id))
-            return stickyProblemIDs.intersection(alive).count
+            return sticky.intersection(alive).count
         }
         return document.problemCues.count
     }
@@ -177,12 +163,10 @@ final class ReviewFileModel: ObservableObject {
     }
 
     func setScope(_ scope: ReviewScope) {
-        self.scope = scope
-        if scope == .problems {
-            stickyProblemIDs = Set(document.problemCues.map(\.id))
-        } else {
-            stickyProblemIDs = nil
-        }
+        var filter = listFilter
+        filter.setScope(scope, problemIDs: Set(document.problemCues.map(\.id)))
+        guard filter != listFilter else { return }
+        listFilter = filter
     }
 
     func moveSelection(by step: Int) {
@@ -244,9 +228,17 @@ final class ReviewFileModel: ObservableObject {
     }
 
     func setTiming(id: UUID, startPTS: UInt32, endPTS: UInt32) {
-        update { document in
-            try? document.setTiming(id: id, startPTS: startPTS, endPTS: endPTS)
+        let original = document
+        var document = original
+        do {
+            try document.setTiming(id: id, startPTS: startPTS, endPTS: endPTS)
+        } catch {
+            return
         }
+        guard document != original else { return }
+        queue.setReviewDocument(document, for: itemID)
+        revision += 1
+        onChange()
     }
 
     func deleteSelection() {
@@ -283,9 +275,10 @@ final class ReviewFileModel: ObservableObject {
             created = document.merge(ids: ids)
         }
         if let created {
-            if var sticky = stickyProblemIDs, ids.contains(where: { sticky.contains($0) }) {
-                sticky.insert(created)
-                stickyProblemIDs = sticky
+            var filter = listFilter
+            filter.includeMergedCue(created, replacing: ids)
+            if filter != listFilter {
+                listFilter = filter
             }
             selection = [created]
         }
@@ -295,8 +288,10 @@ final class ReviewFileModel: ObservableObject {
         update { document in
             _ = document.mergeAllWordByWordGroups()
         }
-        if scope == .problems {
-            stickyProblemIDs = Set(document.problemCues.map(\.id))
+        var filter = listFilter
+        filter.refreshProblems(Set(document.problemCues.map(\.id)))
+        if filter != listFilter {
+            listFilter = filter
         }
         if let first = document.cues.first {
             selection = [first.id]
@@ -435,6 +430,11 @@ private struct ReviewEditor: View {
     @EnvironmentObject private var model: AppModel
     @State private var focusRequest = 0
     @State private var editorActive = false
+    /// Controls keep their own state. The model is updated on the next turn so
+    /// a picker or list write during a view update cannot publish immediately.
+    @State private var scope = ReviewScope.all
+    @State private var selection: Set<UUID> = []
+    @State private var searchText = ""
 
     var body: some View {
         let itemName = model.items.first { $0.id == file.itemID }?.name ?? "Subtitles"
@@ -475,15 +475,44 @@ private struct ReviewEditor: View {
                 focusRequest += 1
             }
         }
-        .searchable(text: $file.searchText, placement: .toolbar, prompt: "Search text")
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search text")
         .toolbar { toolbar }
         .focusedSceneValue(\.reviewActions, actions)
         .onAppear {
-            file.selectInitialIfNeeded()
+            scope = file.scope
+            selection = file.selection
+            searchText = file.searchText
             model.noteReviewWindowKey(state.id)
+            Task { @MainActor in
+                file.selectInitialIfNeeded()
+            }
         }
-        .onChange(of: file.selection) { _ in
-            file.endCoalescing()
+        .onChange(of: scope) { newValue in
+            Task { @MainActor in
+                file.setScope(newValue)
+            }
+        }
+        .onChange(of: file.scope) { newValue in
+            Task { @MainActor in
+                if scope != newValue { scope = newValue }
+            }
+        }
+        .onChange(of: selection) { newValue in
+            Task { @MainActor in
+                guard file.selection != newValue else { return }
+                file.selection = newValue
+                file.endCoalescing()
+            }
+        }
+        .onChange(of: file.selection) { newValue in
+            Task { @MainActor in
+                if selection != newValue { selection = newValue }
+            }
+        }
+        .onChange(of: searchText) { newValue in
+            Task { @MainActor in
+                if file.searchText != newValue { file.searchText = newValue }
+            }
         }
     }
 
@@ -577,10 +606,7 @@ private struct ReviewEditor: View {
 
     private var cueColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("Scope", selection: Binding(
-                get: { file.scope },
-                set: { file.setScope($0) }
-            )) {
+            Picker("Scope", selection: $scope) {
                 Text("All \(ReviewFormat.grouped(file.document.cues.count))").tag(ReviewScope.all)
                 Text("Problems \(ReviewFormat.grouped(file.problemScopeCount()))").tag(ReviewScope.problems)
                 Text("Edited \(ReviewFormat.grouped(file.document.editedCount))").tag(ReviewScope.edited)
@@ -593,7 +619,7 @@ private struct ReviewEditor: View {
 
             let marks = groupMarks()
             ScrollViewReader { proxy in
-                List(file.visibleCues(), selection: $file.selection) { cue in
+                List(file.visibleCues(), selection: $selection) { cue in }
                     CueListRow(
                         cue: cue,
                         number: file.document.cueNumber(of: cue.id) ?? 0,
@@ -1203,7 +1229,16 @@ private struct CueTimeField: View {
             if !focused { draft = SRTWriter.timestamp(pts: newValue) }
         }
         .onChange(of: focused) { isFocused in
-            if !isFocused { commit() }
+            guard !isFocused else { return }
+            guard let next = Self.parsed(draft) else {
+                draft = SRTWriter.timestamp(pts: pts)
+                return
+            }
+            draft = SRTWriter.timestamp(pts: next)
+            guard next != pts else { return }
+            Task { @MainActor in
+                onCommit(next)
+            }
         }
     }
 
@@ -1211,6 +1246,10 @@ private struct CueTimeField: View {
         let next = CueClock.nudging(pts, bySteps: steps)
         draft = SRTWriter.timestamp(pts: next)
         onCommit(next)
+    }
+
+    private static func parsed(_ draft: String) -> UInt32? {
+        CueClock.parse(draft)
     }
 
     private func commit() {
@@ -1248,7 +1287,16 @@ private struct CueDurationField: View {
             if !focused { draft = Self.label(newValue) }
         }
         .onChange(of: focused) { isFocused in
-            if !isFocused { commit() }
+            guard !isFocused else { return }
+            guard let next = Self.parse(draft) else {
+                draft = Self.label(duration)
+                return
+            }
+            draft = Self.label(next)
+            guard next != duration else { return }
+            Task { @MainActor in
+                onCommit(next)
+            }
         }
     }
 

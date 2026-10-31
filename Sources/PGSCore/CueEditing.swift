@@ -541,6 +541,61 @@ public struct CueDocument: Equatable, Sendable {
     }
 }
 
+/// Which cues the review list is showing.
+public enum ReviewScope: String, Hashable, Sendable {
+    case all
+    case problems
+    case edited
+}
+
+/// Scope plus the Problems snapshot.
+///
+/// The snapshot is stored in the same value as the scope, so one assignment
+/// publishes both. Switching to Problems copies the current problem ids.
+/// Calling it again while Problems is already selected leaves that snapshot
+/// alone, so a fixed cue stays put until the scope actually changes.
+public struct ReviewListFilter: Equatable, Sendable {
+    public var scope: ReviewScope = .all
+    public private(set) var stickyProblemIDs: Set<UUID>?
+
+    public init() {}
+
+    public mutating func setScope(_ scope: ReviewScope, problemIDs: Set<UUID>) {
+        guard scope != self.scope else { return }
+        if scope == .problems {
+            stickyProblemIDs = problemIDs
+        } else {
+            stickyProblemIDs = nil
+        }
+        self.scope = scope
+    }
+
+    /// A merge of a problem cue should remain visible in the current Problems snapshot.
+    public mutating func includeMergedCue(_ id: UUID, replacing replaced: [UUID]) {
+        guard var sticky = stickyProblemIDs else { return }
+        guard replaced.contains(where: { sticky.contains($0) }) else { return }
+        sticky.insert(id)
+        stickyProblemIDs = sticky
+    }
+
+    /// Replaces the snapshot after every group is merged. No change on other scopes.
+    public mutating func refreshProblems(_ problemIDs: Set<UUID>) {
+        guard scope == .problems else { return }
+        stickyProblemIDs = problemIDs
+    }
+
+    public func shows(_ cue: ReviewCue) -> Bool {
+        switch scope {
+        case .all:
+            return true
+        case .problems:
+            return stickyProblemIDs?.contains(cue.id) ?? false
+        case .edited:
+            return cue.isEdited
+        }
+    }
+}
+
 /// The count drawn on a queue row. Failed-only rows say "failed". A row that
 /// also has a low-confidence cue says "to check", which is how issue #19 will
 /// light up without a new row layout.

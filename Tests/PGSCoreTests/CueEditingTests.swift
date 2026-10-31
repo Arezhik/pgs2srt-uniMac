@@ -336,6 +336,32 @@ final class CueEditingTests: XCTestCase {
         XCTAssertFalse(packed.document.cues[0].text.contains("Hello"))
     }
 
+    func testProblemsScopeKeepsItsSnapshotUntilTheScopeChanges() {
+        let failed = UUID()
+        let fine = UUID()
+        var filter = ReviewListFilter()
+        filter.setScope(.problems, problemIDs: [failed])
+        XCTAssertEqual(filter.stickyProblemIDs, [failed])
+        filter.setScope(.problems, problemIDs: [fine])
+        XCTAssertEqual(filter.stickyProblemIDs, [failed])
+
+        let merged = UUID()
+        filter.includeMergedCue(merged, replacing: [failed])
+        XCTAssertEqual(filter.stickyProblemIDs, [failed, merged])
+
+        filter.setScope(.all, problemIDs: [failed])
+        XCTAssertNil(filter.stickyProblemIDs)
+        XCTAssertEqual(filter.scope, .all)
+
+        filter.setScope(.problems, problemIDs: [fine])
+        XCTAssertEqual(filter.scope, .problems)
+        XCTAssertEqual(filter.stickyProblemIDs, [fine])
+        let failedCue = ReviewCue(id: failed, startPTS: 0, endPTS: 1, text: "")
+        let fineCue = ReviewCue(id: fine, startPTS: 0, endPTS: 1, text: "Fine")
+        XCTAssertFalse(filter.shows(failedCue))
+        XCTAssertTrue(filter.shows(fineCue))
+    }
+
     func testFifteenHundredCuesStayEditable() throws {
         var cues: [ReviewCue] = []
         cues.reserveCapacity(1_500)
