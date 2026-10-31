@@ -619,7 +619,7 @@ private struct ReviewEditor: View {
 
             let marks = groupMarks()
             ScrollViewReader { proxy in
-                List(file.visibleCues(), selection: $selection) { cue in }
+                List(file.visibleCues(), selection: $selection) { cue in
                     CueListRow(
                         cue: cue,
                         number: file.document.cueNumber(of: cue.id) ?? 0,
