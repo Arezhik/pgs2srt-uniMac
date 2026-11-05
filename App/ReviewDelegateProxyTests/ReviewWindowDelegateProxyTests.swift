@@ -188,15 +188,17 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         window.isRestorable = true
         window.invalidateRestorableState()
         let coder = NSKeyedArchiver(requiringSecureCoding: false)
-        window.encodeRestorableState(with: coder)
+        // NSWindow refuses to encode itself into a plain keyed archiver here.
+        // Send the delegate message directly, which is what AppKit does after
+        // it has cached a yes.
         ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
         XCTAssertEqual(recorder.calls.last, "encode")
         XCTAssertTrue(recorder.lastCoder === coder)
 
         proxy.forwardingDelegate = nil
         window.invalidateRestorableState()
-        window.encodeRestorableState(with: coder)
         ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
+        window.isRestorable = false
         assertResizeSinks(proxy, window, #selector(NSWindowDelegate.windowWillResize(_:to:)))
 
         for line in lines.values {
