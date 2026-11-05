@@ -1453,9 +1453,11 @@ private final class ReviewWindowAnchor: NSView {
     var isDirty: () -> Bool = { false }
     var onKey: () -> Void = {}
     var onClose: () -> Void = {}
-    var onAttemptClose: (@escaping (Bool) -> Void) -> Void = { $0(false) }
+    var onAttemptClose: (@escaping (Bool) -> Void) -> Void = { _ in }
     var documentEdited = false
-    private let proxy = ReviewCloseProxy()
+    // Objective-C proxy. Swift's forwardingTarget(for:) is not invoked for
+    // private AppKit selectors such as windowDidOrderOffScreen:.
+    private let proxy = ReviewWindowDelegateProxy()
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -1470,97 +1472,15 @@ private final class ReviewWindowAnchor: NSView {
             window.isDocumentEdited = documentEdited
         }
         proxy.isDirty = isDirty
-        proxy.onKey = onKey
-        proxy.onClose = onClose
-        proxy.onAttemptClose = onAttemptClose
+        proxy.didBecomeKey = onKey
+        proxy.willClose = onClose
+        proxy.attemptClose = onAttemptClose
+        proxy.logEvent = { event, title in
+            DebugLog.shared.record(.lifecycle, "Review window \(event): \(title)")
+        }
         if window.delegate !== proxy {
-            proxy.forward = window.delegate
+            proxy.forwardingDelegate = window.delegate
             window.delegate = proxy
         }
-    }
-}
-
-private final class ReviewCloseProxy: NSObject, NSWindowDelegate {
-    weak var forward: NSWindowDelegate?
-    var allowClose = false
-    var isDirty: () -> Bool = { false }
-    var onKey: () -> Void = {}
-    var onClose: () -> Void = {}
-    var onAttemptClose: (@escaping (Bool) -> Void) -> Void = { $0(false) }
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if allowClose {
-            allowClose = false
-            return true
-        }
-        guard isDirty() else { return true }
-        onAttemptClose { [weak self, weak sender] shouldClose in
-            guard shouldClose, let sender else { return }
-            self?.allowClose = true
-            sender.close()
-        }
-        return false
-    }
-
-    func windowDidBecomeKey(_ notification: Notification) {
-        log("became key", notification)
-        onKey()
-        forward?.windowDidBecomeKey?(notification)
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        log("resigned key", notification)
-        forward?.windowDidResignKey?(notification)
-    }
-
-    func windowWillMiniaturize(_ notification: Notification) {
-        log("will minimize", notification)
-        forward?.windowWillMiniaturize?(notification)
-    }
-
-    func windowDidMiniaturize(_ notification: Notification) {
-        log("minimized", notification)
-        forward?.windowDidMiniaturize?(notification)
-    }
-
-    func windowDidDeminiaturize(_ notification: Notification) {
-        log("restored", notification)
-        forward?.windowDidDeminiaturize?(notification)
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        log("will close", notification)
-        onClose()
-        forward?.windowWillClose?(notification)
-    }
-
-    /// Selectors this object actually implements. A Swift `NSWindowDelegate`
-    /// otherwise reports that it responds to every optional method. AppKit
-    /// then sends `windowDidMiniaturize:` on minimize and raises
-    /// NSInvalidArgumentException because there is no implementation.
-    private static let implemented: Set<Selector> = [
-        #selector(windowShouldClose(_:)),
-        #selector(windowDidBecomeKey(_:)),
-        #selector(windowDidResignKey(_:)),
-        #selector(windowWillMiniaturize(_:)),
-        #selector(windowDidMiniaturize(_:)),
-        #selector(windowDidDeminiaturize(_:)),
-        #selector(windowWillClose(_:))
-    ]
-
-    override func responds(to aSelector: Selector!) -> Bool {
-        guard let aSelector else { return false }
-        if Self.implemented.contains(aSelector) { return true }
-        return forward?.responds(to: aSelector) ?? false
-    }
-
-    override func forwardingTarget(for aSelector: Selector!) -> Any? {
-        guard let aSelector, !Self.implemented.contains(aSelector) else { return nil }
-        return forward
-    }
-
-    private func log(_ event: String, _ notification: Notification) {
-        let title = (notification.object as? NSWindow)?.title ?? "review"
-        DebugLog.shared.record(.lifecycle, "Review window \(event): \(title)")
     }
 }
