@@ -130,7 +130,13 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         proxy.logEvent = { event, title in
             lines.values.append("Review window \(event): \(title)")
         }
-        let window = makeWindow(title: "realtestduoBAK")
+        let window = CloseRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: true
+        )
+        window.title = "realtestduoBAK"
         window.delegate = proxy
 
         XCTAssertTrue(proxy.windowShouldClose(window))
@@ -149,8 +155,14 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         proxy.attemptClose = { decision in
             decision(true)
         }
+        // AppKit does not re-enter windowShouldClose: from inside that call,
+        // and -[NSWindow close] segfaults in this headless test process.
+        // Record the close instead, then prove the allow flag lets the next
+        // ask through.
         XCTAssertFalse(proxy.windowShouldClose(window))
-        XCTAssertTrue(flags.willClose)
+        XCTAssertEqual(window.closeCount, 1)
+        XCTAssertFalse(flags.willClose)
+        XCTAssertTrue(proxy.windowShouldClose(window))
         XCTAssertEqual(
             matching(lines.values, prefix: "Review window close"),
             [
@@ -160,7 +172,6 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
                 "Review window close allowed: realtestduoBAK"
             ]
         )
-        XCTAssertTrue(lines.values.contains("Review window will close: realtestduoBAK"))
     }
 }
 
@@ -173,6 +184,14 @@ private func object(_ value: Any?) -> AnyObject? {
 /// Close also orders the window out, which can log between these lines.
 private func matching(_ lines: [String], prefix: String) -> [String] {
     lines.filter { $0.hasPrefix(prefix) }
+}
+
+@MainActor
+private final class CloseRecordingWindow: NSWindow {
+    var closeCount = 0
+    override func close() {
+        closeCount += 1
+    }
 }
 
 @MainActor
