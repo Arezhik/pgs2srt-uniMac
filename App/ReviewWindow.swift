@@ -1559,25 +1559,6 @@ private final class ReviewCloseProxy: NSObject, NSWindowDelegate {
         return forward
     }
 
-    override func methodSignature(for aSelector: Selector!) -> NSMethodSignature? {
-        guard let aSelector else { return nil }
-        if Self.implemented.contains(aSelector) {
-            return super.methodSignature(for: aSelector)
-        }
-        if let object = forward as? NSObject, object.responds(to: aSelector) {
-            return object.methodSignature(for: aSelector)
-        }
-        return super.methodSignature(for: aSelector)
-    }
-
-    override func forwardInvocation(_ anInvocation: NSInvocation) {
-        if let object = forward as? NSObject, object.responds(to: anInvocation.selector) {
-            anInvocation.invoke(withTarget: object)
-            return
-        }
-        super.forwardInvocation(anInvocation)
-    }
-
     private func log(_ event: String, _ notification: Notification) {
         let title = (notification.object as? NSWindow)?.title ?? "review"
         DebugLog.shared.record(.lifecycle, "Review window \(event): \(title)")
