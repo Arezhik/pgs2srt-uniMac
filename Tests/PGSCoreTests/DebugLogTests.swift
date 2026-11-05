@@ -106,7 +106,7 @@ final class DebugLogTests: XCTestCase {
 
         XCTAssertEqual(
             ConversionPreferences.default.logDescription,
-            "language en-US, save next to the source file, if the .srt exists overwrite, 4 pictures at a time, italics off, choose MKV track off"
+            "language en-US, save next to the source file, if the .srt exists overwrite, 4 pictures at a time, italics off, choose MKV track off, after conversion save right away"
         )
     }
 

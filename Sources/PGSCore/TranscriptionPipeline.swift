@@ -50,11 +50,20 @@ public struct TranscriptionResult: Equatable, Sendable {
     public var cues: [SRTCue]
     public var failures: [CueRecognitionFailure]
     public var srt: String
+    /// One entry per cue. Text is empty when recognition failed, never the placeholder.
+    /// `image` is set only when the pipeline was asked to keep pictures.
+    public var captured: [CapturedReviewCue]
 
-    public init(cues: [SRTCue], failures: [CueRecognitionFailure], srt: String) {
+    public init(
+        cues: [SRTCue],
+        failures: [CueRecognitionFailure],
+        srt: String,
+        captured: [CapturedReviewCue] = []
+    ) {
         self.cues = cues
         self.failures = failures
         self.srt = srt
+        self.captured = captured
     }
 }
 
@@ -73,6 +82,9 @@ public struct TranscriptionPipeline: Sendable {
     /// When true, a line the image preparer marked as leaning is wrapped in `<i>`.
     /// Off by default. The lean check is experimental and often wrong for upright type.
     public var italics: Bool
+    /// When true, each captured cue keeps its bitmap so the review window can show it.
+    /// The command-line tool leaves this off.
+    public var keepPictures: Bool
 
     public static let noTextMessage = "no text recognized"
 
@@ -81,12 +93,14 @@ public struct TranscriptionPipeline: Sendable {
         maxConcurrent: Int = 4,
         lineEnding: SRTLineEnding = .crlf,
         italics: Bool = false,
+        keepPictures: Bool = false,
         cleaner: OCRTextCleaner? = nil
     ) {
         self.languages = languages
         self.maxConcurrent = max(1, maxConcurrent)
         self.lineEnding = lineEnding
         self.italics = italics
+        self.keepPictures = keepPictures
         self.cleaner = cleaner ?? OCRTextCleaner(fixEnglishPronounI: OCRTextCleaner.usesEnglish(languages))
     }
 
@@ -135,7 +149,7 @@ public struct TranscriptionPipeline: Sendable {
                 .ocr,
                 "OCR finished, 0 cues, 0 failed, \(DebugLogFormatting.duration(since: started))"
             )
-            return TranscriptionResult(cues: [], failures: [], srt: try SRTWriter(lineEnding: lineEnding).write([]))
+            return TranscriptionResult(cues: [], failures: [], srt: try SRTWriter(lineEnding: lineEnding).write([]), captured: [])
         }
 
         let outcomes: [CueOutcome?]
@@ -153,10 +167,13 @@ public struct TranscriptionPipeline: Sendable {
 
         var srtCues: [SRTCue] = []
         var failures: [CueRecognitionFailure] = []
+        var captured: [CapturedReviewCue] = []
         srtCues.reserveCapacity(total)
+        captured.reserveCapacity(total)
         for outcome in outcomes {
             guard let outcome else { continue }
             srtCues.append(outcome.cue)
+            captured.append(outcome.captured)
             if let failure = outcome.failure {
                 failures.append(failure)
             }
@@ -168,7 +185,7 @@ public struct TranscriptionPipeline: Sendable {
             .ocr,
             "OCR finished, \(total) cues, \(failures.count) failed\(reasonText), \(DebugLogFormatting.duration(since: started))"
         )
-        return TranscriptionResult(cues: srtCues, failures: failures, srt: srt)
+        return TranscriptionResult(cues: srtCues, failures: failures, srt: srt, captured: captured)
     }
 
     private func recognizeAll(
@@ -209,6 +226,7 @@ public struct TranscriptionPipeline: Sendable {
     private struct CueOutcome: Sendable {
         var cue: SRTCue
         var failure: CueRecognitionFailure?
+        var captured: CapturedReviewCue
     }
 
     private func recognize(
@@ -229,12 +247,14 @@ public struct TranscriptionPipeline: Sendable {
                 )
                 return CueOutcome(
                     cue: SRTCue(startPTS: cue.startPTS, endPTS: cue.endPTS, text: failure.placeholder),
-                    failure: failure
+                    failure: failure,
+                    captured: capturedCue(cue, text: "", failure: failure.message, confidence: recognized.confidence)
                 )
             }
             return CueOutcome(
                 cue: SRTCue(startPTS: cue.startPTS, endPTS: cue.endPTS, text: text),
-                failure: nil
+                failure: nil,
+                captured: capturedCue(cue, text: text, failure: nil, confidence: recognized.confidence)
             )
         } catch is CancellationError {
             throw CancellationError()
@@ -248,9 +268,28 @@ public struct TranscriptionPipeline: Sendable {
             )
             return CueOutcome(
                 cue: SRTCue(startPTS: cue.startPTS, endPTS: cue.endPTS, text: failure.placeholder),
-                failure: failure
+                failure: failure,
+                captured: capturedCue(cue, text: "", failure: failure.message, confidence: nil)
             )
         }
+    }
+
+    /// The editable cue. The placeholder stays on the SRT cue only.
+    private func capturedCue(
+        _ cue: SubtitleCue,
+        text: String,
+        failure: String?,
+        confidence: Double?
+    ) -> CapturedReviewCue {
+        CapturedReviewCue(
+            startPTS: cue.startPTS,
+            endPTS: cue.endPTS,
+            text: text,
+            failureMessage: failure,
+            confidence: confidence,
+            alternatives: [],
+            image: keepPictures ? cue.image : nil
+        )
     }
 
     /// Lines with positions win over the flat `text` string. When `italics` is

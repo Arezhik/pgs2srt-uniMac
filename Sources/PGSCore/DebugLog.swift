@@ -335,6 +335,7 @@ extension ConversionPreferences {
         }
         let italics = experimentalItalics ? "on" : "off"
         let choose = chooseMKVTrack ? "on" : "off"
-        return "language \(language), save \(place), if the .srt exists \(existing), \(concurrency) pictures at a time, italics \(italics), choose MKV track \(choose)"
+        let when = saveTiming == .afterReview ? "hold for review" : "save right away"
+        return "language \(language), save \(place), if the .srt exists \(existing), \(concurrency) pictures at a time, italics \(italics), choose MKV track \(choose), after conversion \(when)"
     }
 }

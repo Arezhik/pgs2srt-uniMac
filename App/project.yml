@@ -30,9 +30,17 @@ targets:
     platform: macOS
     sources:
       - path: .
+        excludes:
+          - "ReviewDelegateProxy/**"
+          - "ReviewDelegateProxyTests/**"
         includes:
           - "*.swift"
           - Info.plist
+          - "PGS2SRT-Bridging-Header.h"
+      - path: ReviewDelegateProxy
+        includes:
+          - "*.m"
+          - "include/*.h"
     # App Sandbox stays off. User-selected file access does not let the app
     # create a new .srt next to a dropped .sup, and ad-hoc "Sign to Run Locally"
     # has no provisioning profile for a sandbox entitlement.
@@ -61,6 +69,10 @@ targets:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
         SWIFT_EMIT_LOC_STRINGS: YES
+        SWIFT_OBJC_BRIDGING_HEADER: PGS2SRT-Bridging-Header.h
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/ReviewDelegateProxy/include"
         ENABLE_PREVIEWS: YES
         MACOSX_DEPLOYMENT_TARGET: "13.0"
       configs:

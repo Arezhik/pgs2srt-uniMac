@@ -12,7 +12,10 @@
 		A1000000000000000000000A /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000015 /* PGSCore */; };
 		A10000000000000000000027 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000024 /* AppModel.swift */; };
 		A10000000000000000000028 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000025 /* SettingsView.swift */; };
-		A1000000000000000000002C /* DebugLogSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002B /* DebugLogSupport.swift */; };
+		A1000000000000000000002C /* CueTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002B /* CueTextEditor.swift */; };
+		A1000000000000000000002E /* ReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002D /* ReviewWindow.swift */; };
+		A10000000000000000000030 /* DebugLogSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002F /* DebugLogSupport.swift */; };
+		A10000000000000000000031 /* ReviewWindowDelegateProxy.m in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000032 /* ReviewWindowDelegateProxy.m */; };
 		A10000000000000000000029 /* VisionOCR in Frameworks */ = {isa = PBXBuildFile; productRef = A1000000000000000000002A /* VisionOCR */; };
 		A10000000000000000000019 /* PGS2SRTCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000017 /* PGS2SRTCLI.swift */; };
 		A1000000000000000000001A /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000022 /* PGSCore */; };
@@ -25,7 +28,12 @@
 		A10000000000000000000007 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A10000000000000000000024 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		A10000000000000000000025 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		A1000000000000000000002B /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
+		A1000000000000000000002B /* CueTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueTextEditor.swift; sourceTree = "<group>"; };
+		A1000000000000000000002D /* ReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWindow.swift; sourceTree = "<group>"; };
+		A1000000000000000000002F /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
+		A10000000000000000000032 /* ReviewWindowDelegateProxy.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ReviewWindowDelegateProxy.m; path = ReviewDelegateProxy/ReviewWindowDelegateProxy.m; sourceTree = SOURCE_ROOT; };
+		A10000000000000000000033 /* ReviewWindowDelegateProxy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ReviewWindowDelegateProxy.h; path = ReviewDelegateProxy/include/ReviewWindowDelegateProxy.h; sourceTree = SOURCE_ROOT; };
+		A10000000000000000000034 /* PGS2SRT-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PGS2SRT-Bridging-Header.h"; sourceTree = "<group>"; };
 		A10000000000000000000026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000017 /* PGS2SRTCLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGS2SRTCLI.swift; sourceTree = "<group>"; };
 		A10000000000000000000018 /* pgs2srt */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = pgs2srt; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -69,7 +77,12 @@
 				A10000000000000000000007 /* ContentView.swift */,
 				A10000000000000000000024 /* AppModel.swift */,
 				A10000000000000000000025 /* SettingsView.swift */,
-				A1000000000000000000002B /* DebugLogSupport.swift */,
+				A1000000000000000000002B /* CueTextEditor.swift */,
+				A1000000000000000000002D /* ReviewWindow.swift */,
+				A1000000000000000000002F /* DebugLogSupport.swift */,
+				A10000000000000000000032 /* ReviewWindowDelegateProxy.m */,
+				A10000000000000000000033 /* ReviewWindowDelegateProxy.h */,
+				A10000000000000000000034 /* PGS2SRT-Bridging-Header.h */,
 				A10000000000000000000026 /* Info.plist */,
 			);
 			name = App;
@@ -184,7 +197,10 @@
 				A10000000000000000000009 /* ContentView.swift in Sources */,
 				A10000000000000000000027 /* AppModel.swift in Sources */,
 				A10000000000000000000028 /* SettingsView.swift in Sources */,
-				A1000000000000000000002C /* DebugLogSupport.swift in Sources */,
+				A1000000000000000000002C /* CueTextEditor.swift in Sources */,
+				A1000000000000000000002E /* ReviewWindow.swift in Sources */,
+				A10000000000000000000030 /* DebugLogSupport.swift in Sources */,
+				A10000000000000000000031 /* ReviewWindowDelegateProxy.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -272,7 +288,12 @@
 				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/ReviewDelegateProxy/include",
+				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "PGS2SRT-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -309,7 +330,12 @@
 				SUPPORTED_PLATFORMS = macosx;
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/ReviewDelegateProxy/include",
+				);
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "PGS2SRT-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

@@ -13,6 +13,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var items: [ConversionItem] = []
     @Published private(set) var banners: [String] = []
     @Published private(set) var preferences: ConversionPreferences
+    @Published var selectedItemID: UUID?
+    @Published private(set) var reviewRevision = 0
+    @Published var reviewOpenRequest: UUID?
+    @Published private(set) var reviewWindows: [ReviewWindowState] = []
+    private var reviewFiles: [UUID: ReviewFileModel] = [:]
+    private var focusedReviewWindowID: UUID?
 
     private let queue: ConversionQueue
     static weak var shared: AppModel?
@@ -230,6 +236,197 @@ final class AppModel: ObservableObject {
     private func refresh() {
         items = queue.items
         banners = queue.banners
+        let ids = Set(items.map(\.id))
+        for item in items where reviewFiles[item.id] == nil && queue.hasReview(for: item.id) {
+            reviewFiles[item.id] = ReviewFileModel(itemID: item.id, queue: queue) { [weak self] in
+                self?.reviewRevision &+= 1
+            }
+        }
+        for id in reviewFiles.keys where !ids.contains(id) {
+            reviewFiles[id] = nil
+        }
+        if let selectedItemID, !ids.contains(selectedItemID) {
+            self.selectedItemID = nil
+        }
+    }
+
+    func reviewFile(for id: UUID) -> ReviewFileModel? {
+        reviewFiles[id]
+    }
+
+    func summary(for item: ConversionItem) -> ReviewRowSummary? {
+        reviewFiles[item.id]?.summary
+    }
+
+    func requestReview(itemID: UUID, newWindow: Bool) {
+        guard queue.hasReview(for: itemID) else { return }
+        selectedItemID = itemID
+        let windowID: UUID
+        if !newWindow, let focused = focusedReviewWindowID,
+           let state = reviewWindows.first(where: { $0.id == focused }) {
+            state.itemID = itemID
+            windowID = state.id
+        } else if !newWindow, let existing = reviewWindows.first {
+            existing.itemID = itemID
+            windowID = existing.id
+        } else {
+            let state = ReviewWindowState(itemID: itemID)
+            reviewWindows.append(state)
+            windowID = state.id
+        }
+        focusedReviewWindowID = windowID
+        reviewOpenRequest = windowID
+    }
+
+    func closeReviewWindow(_ id: UUID) {
+        reviewWindows.removeAll { $0.id == id }
+        if focusedReviewWindowID == id {
+            focusedReviewWindowID = reviewWindows.last?.id
+        }
+    }
+
+    func noteReviewWindowKey(_ id: UUID) {
+        focusedReviewWindowID = id
+    }
+
+    var finishedReviewCount: Int {
+        items.reduce(0) { partial, item in
+            partial + (reviewFiles[item.id] == nil ? 0 : 1)
+        }
+    }
+
+    var hasReviewsNeedingSave: Bool {
+        reviewFiles.values.contains { $0.document.needsWriting }
+    }
+
+    func batchEntries() -> [ReviewQueueEntry] {
+        items.compactMap { item in
+            guard let file = reviewFiles[item.id] else { return nil }
+            let document = file.document
+            return ReviewQueueEntry(
+                id: item.id,
+                needsReview: ReviewBatchOrder.needsReview(
+                    problemCount: document.ocrFailedCount + document.lowConfidenceCount,
+                    needsWriting: document.needsWriting
+                )
+            )
+        }
+    }
+
+    func nextReviewFile(after id: UUID) -> UUID? {
+        ReviewBatchOrder.nextReviewFile(after: id, in: batchEntries())
+    }
+
+    func batchPosition(for id: UUID) -> (index: Int, total: Int)? {
+        ReviewBatchOrder.position(of: id, in: batchEntries())
+    }
+
+    func discardAllUnsavedEdits() {
+        for file in reviewFiles.values {
+            file.discardUnsavedEdits()
+        }
+    }
+
+    func resolveUnsavedEdits(for itemID: UUID, host: NSWindow?) async -> Bool {
+        guard let file = reviewFiles[itemID], file.document.hasUnsavedEdits else { return true }
+        let name = ReviewFormat.title(for: items.first { $0.id == itemID }?.name ?? "Subtitles")
+        switch await UnsavedPrompt.ask(fileName: name, host: host) {
+        case .cancel:
+            return false
+        case .discard:
+            file.discardUnsavedEdits()
+            return true
+        case .save:
+            return await saveReview(itemID: itemID, host: host)
+        }
+    }
+
+    func saveReview(itemID: UUID, host: NSWindow?) async -> Bool {
+        guard let file = reviewFiles[itemID] else { return false }
+        let path = file.savedPath ?? file.plannedPath
+        guard !path.isEmpty else { return false }
+        return await writeReview(file, to: path, host: host)
+    }
+
+    func saveReviewAs(itemID: UUID, host: NSWindow?) async -> Bool {
+        guard let file = reviewFiles[itemID] else { return false }
+        let suggested = file.savedPath ?? file.plannedPath
+        guard let path = chooseSavePath(suggested: suggested) else { return false }
+        return await writeReview(file, to: path, host: host)
+    }
+
+    func saveAllReviewed() async {
+        let host = NSApp.keyWindow
+        for item in items where reviewFiles[item.id]?.document.needsWriting == true {
+            let saved = await saveReview(itemID: item.id, host: host)
+            if !saved { return }
+        }
+    }
+
+    private func writeReview(_ file: ReviewFileModel, to path: String, host: NSWindow?) async -> Bool {
+        let name = ReviewFormat.title(for: items.first { $0.id == file.itemID }?.name ?? "Subtitles")
+        DebugLog.shared.record(.lifecycle, "Review save started \(name)")
+        let plan = ReviewWritePlanner.plan(
+            path: path,
+            plannedPath: file.plannedPath,
+            savedPath: file.savedPath,
+            fileExists: { FileManager.default.fileExists(atPath: $0) }
+        )
+        if case .confirmReplace = plan {
+            switch await OverwritePrompt.ask(outputPath: path, host: host) {
+            case let .replace(applyToAll):
+                if applyToAll {
+                    queue.rememberOverwriteAnswer(.replace(applyToAll: true))
+                }
+            case .skip, .cancel:
+                DebugLog.shared.record(.lifecycle, "Review save cancelled \(name)")
+                return false
+            }
+        }
+        do {
+            try await queue.saveReview(id: file.itemID, to: path)
+            file.noteExternalChange()
+            DebugLog.shared.record(.lifecycle, "Review save finished \(name)")
+            return true
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? "The .srt file could not be written."
+            DebugLog.shared.record(.error, "Review save failed \(name): \(message)", isError: true)
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Could not save the subtitle"
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            if let host {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    alert.beginSheetModal(for: host) { _ in
+                        continuation.resume()
+                    }
+                }
+            } else {
+                alert.runModal()
+            }
+            return false
+        }
+    }
+
+    private func chooseSavePath(suggested: String) -> String? {
+        let panel = NSSavePanel()
+        panel.title = "Save Subtitles"
+        panel.prompt = "Save"
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = URL(fileURLWithPath: suggested).lastPathComponent
+        if let srt = UTType(filenameExtension: "srt") {
+            panel.allowedContentTypes = [srt]
+        }
+        let directory = URL(fileURLWithPath: suggested).deletingLastPathComponent()
+        if !directory.path.isEmpty, directory.path != "/" {
+            panel.directoryURL = directory
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        if url.pathExtension.isEmpty {
+            return url.appendingPathExtension("srt").path
+        }
+        return url.path
     }
 
     /// Reads and writes the files the person picked. Recognition uses the shared pipeline.
@@ -300,6 +497,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let inbox = Inbox()
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model = AppModel.shared, model.hasReviewsNeedingSave else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Do you want to save the subtitles that are not saved yet?"
+        alert.informativeText = "Save writes each .srt file. Don't Save leaves them unsaved."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        if alert.buttons.count > 2 {
+            alert.buttons[2].keyEquivalent = "\u{1b}"
+        }
+        switch alert.runModal() {
+        case .alertSecondButtonReturn:
+            model.discardAllUnsavedEdits()
+            return .terminateNow
+        case .alertFirstButtonReturn:
+            Task { @MainActor in
+                await model.saveAllReviewed()
+                NSApp.reply(toApplicationShouldTerminate: !model.hasReviewsNeedingSave)
+            }
+            return .terminateLater
+        default:
+            return .terminateCancel
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         DebugLog.shared.record(.lifecycle, "Quit")
     }
@@ -357,12 +580,12 @@ enum QueueWindow {
 enum OverwritePrompt {
     private static var active: Session?
 
-    static func ask(outputPath: String) async -> OverwriteAnswer {
+    static func ask(outputPath: String, host: NSWindow? = nil) async -> OverwriteAnswer {
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<OverwriteAnswer, Never>) in
                 let session = Session(continuation: continuation)
                 active = session
-                session.present(outputPath: outputPath)
+                session.present(outputPath: outputPath, preferredHost: host)
             }
         } onCancel: {
             Task { @MainActor in
@@ -382,7 +605,7 @@ enum OverwritePrompt {
             self.continuation = continuation
         }
 
-        func present(outputPath: String) {
+        func present(outputPath: String, preferredHost: NSWindow?) {
             if cancelled {
                 finish(response: .abort)
                 return
@@ -406,7 +629,7 @@ enum OverwritePrompt {
             alert.suppressionButton?.title = "Apply to all"
             alert.suppressionButton?.state = .off
             self.alert = alert
-            let host = QueueWindow.frontmost() ?? NSApp.keyWindow ?? NSApp.mainWindow
+            let host = preferredHost ?? QueueWindow.frontmost() ?? NSApp.keyWindow ?? NSApp.mainWindow
             self.host = host
             if let host {
                 alert.beginSheetModal(for: host) { response in

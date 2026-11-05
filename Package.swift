@@ -1,6 +1,27 @@
 // swift-tools-version:5.9
 import PackageDescription
 
+#if os(macOS)
+// AppKit forwarding tests. Linux CI never builds this target.
+let reviewDelegateProxyTargets: [Target] = [
+    .target(
+        name: "ReviewDelegateProxy",
+        path: "App/ReviewDelegateProxy",
+        publicHeadersPath: "include",
+        linkerSettings: [
+            .linkedFramework("AppKit")
+        ]
+    ),
+    .testTarget(
+        name: "ReviewDelegateProxyTests",
+        dependencies: ["ReviewDelegateProxy"],
+        path: "App/ReviewDelegateProxyTests"
+    )
+]
+#else
+let reviewDelegateProxyTargets: [Target] = []
+#endif
+
 let package = Package(
     // Not "PGS2SRT". That is the Xcode project's name, and the IDE drops the
     // products when the package and the project share a name and a folder.
@@ -24,5 +45,5 @@ let package = Package(
             dependencies: ["PGSCore", "VisionOCR"],
             exclude: ["Fixtures/mkv"]
         )
-    ]
+    ] + reviewDelegateProxyTargets
 )
