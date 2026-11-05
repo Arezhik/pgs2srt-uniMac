@@ -1455,8 +1455,9 @@ private final class ReviewWindowAnchor: NSView {
     var onClose: () -> Void = {}
     var onAttemptClose: (@escaping (Bool) -> Void) -> Void = { _ in }
     var documentEdited = false
-    // Objective-C proxy. Swift's forwardingTarget(for:) is not invoked for
-    // private AppKit selectors such as windowDidOrderOffScreen:.
+    // Objective-C close interceptor. Swift's forwardingTarget(for:) is not
+    // invoked for private AppKit selectors, and a weak forwarded delegate
+    // crashes once AppKit sends a selector it cached at setDelegate: time.
     private let proxy = ReviewWindowDelegateProxy()
 
     override func viewDidMoveToWindow() {
@@ -1478,9 +1479,10 @@ private final class ReviewWindowAnchor: NSView {
         proxy.logEvent = { event, title in
             DebugLog.shared.record(.lifecycle, "Review window \(event): \(title)")
         }
-        if window.delegate !== proxy {
-            proxy.forwardingDelegate = window.delegate
-            window.delegate = proxy
-        }
+        proxy.attach(to: window)
+    }
+
+    deinit {
+        proxy.detach()
     }
 }

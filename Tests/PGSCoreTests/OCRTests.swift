@@ -14,7 +14,7 @@ final class OCRTests: XCTestCase {
         XCTAssertEqual(transcribed[0].endPTS, 180_000)
         XCTAssertEqual(recognizer.seenLanguages, ["en-US"])
         XCTAssertEqual(recognizer.seenWidth, 1)
-        XCTAssertEqual(PGSCoreInfo.version, "0.1.0")
+        XCTAssertEqual(PGSCoreInfo.version, "0.1.1")
     }
 }
 

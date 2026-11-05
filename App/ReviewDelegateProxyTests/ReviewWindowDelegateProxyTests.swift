@@ -2,197 +2,208 @@ import AppKit
 import ReviewDelegateProxy
 import XCTest
 
-/// The minimize crash was `windowDidOrderOffScreen:` landing on a Swift proxy
-/// that had answered `responds(to:)` and then had no Objective-C forwarder.
+/// Unknown window-delegate messages used to raise `unrecognized selector` on
+/// the proxy. AppKit can send one after it has already decided the delegate
+/// responds, which is the #36 crash on `window:willEncodeRestorableState:`.
 @MainActor
 final class ReviewWindowDelegateProxyTests: XCTestCase {
-    func testProxyDoesNotClaimOptionalDelegateMethodsItDoesNotImplement() {
+    func testUnknownAndMultiArgumentSelectorsDoNotThrow() {
         let proxy = ReviewWindowDelegateProxy()
-        let optionalAndUnimplemented: [Selector] = [
-            #selector(NSWindowDelegate.windowDidResize(_:)),
-            #selector(NSWindowDelegate.windowDidMove(_:)),
-            #selector(NSWindowDelegate.windowWillResize(_:to:)),
-            #selector(NSWindowDelegate.windowDidEndLiveResize(_:)),
-            NSSelectorFromString("windowDidChangeSpace:"),
-            NSSelectorFromString("reviewProxyAbsent:")
-        ]
-        for selector in optionalAndUnimplemented {
-            XCTAssertFalse(proxy.responds(to: selector), String(describing: selector))
-            XCTAssertNil(proxy.forwardingTarget(for: selector))
-        }
-        // Real IMPs, including the private order-off/on selectors AppKit sends
-        // around minimize. They answer yes because this class implements them.
-        XCTAssertTrue(proxy.responds(to: #selector(NSWindowDelegate.windowDidMiniaturize(_:))))
-        XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowWillOrderOffScreen:")))
-        XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowDidOrderOffScreen:")))
-        XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowWillOrderOnScreen:")))
-        XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowDidOrderOnScreen:")))
-        XCTAssertNil(proxy.forwardingTarget(for: #selector(NSWindowDelegate.windowDidMiniaturize(_:))))
+        let window = makeWindow(title: "pgs2")
+        let coder = NSKeyedArchiver(requiringSecureCoding: false)
+        let encode = #selector(NSWindowDelegate.window(_:willEncodeRestorableState:))
+        let decode = #selector(NSWindowDelegate.window(_:didDecodeRestorableState:))
+        let resize = #selector(NSWindowDelegate.windowWillResize(_:to:))
+        let unknown = NSSelectorFromString("reviewProxyAbsent:")
+        let unknownTwo = NSSelectorFromString("reviewProxyAbsent::")
+
+        XCTAssertFalse(proxy.responds(to: encode))
+        XCTAssertFalse(proxy.responds(to: unknown))
+        let encodeSignature = ReviewWindowDelegateProxyDescribe(proxy, encode)
+        let unknownSignature = ReviewWindowDelegateProxyDescribe(proxy, unknown)
+        let unknownTwoSignature = ReviewWindowDelegateProxyDescribe(proxy, unknownTwo)
+        XCTAssertGreaterThan(encodeSignature.argumentCount, 0)
+        XCTAssertGreaterThan(unknownSignature.argumentCount, 0)
+        XCTAssertGreaterThan(unknownTwoSignature.argumentCount, 0)
+        XCTAssertEqual(encodeSignature.argumentCount, 4)
+        XCTAssertEqual(encodeSignature.returnLength, 0)
+
+        ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
+        _ = proxy.perform(encode, with: window, with: coder)
+        _ = proxy.perform(decode, with: window, with: coder)
+        _ = proxy.perform(unknown, with: window)
+        _ = proxy.perform(unknownTwo, with: window, with: coder)
+        assertResizeSinks(proxy, window, resize)
+
+        let recorder = RecordingDelegate()
+        proxy.forwardingDelegate = recorder
+        XCTAssertTrue(proxy.responds(to: encode))
+        XCTAssertTrue(proxy.responds(to: resize))
+        let forwarded = object(proxy.forwardingTarget(for: encode))
+        XCTAssertTrue(forwarded === recorder)
+
+        ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
+        XCTAssertEqual(recorder.calls.last, "encode")
+        XCTAssertTrue(recorder.lastCoder === coder)
+        let resized = ReviewWindowDelegateProxyProbeResize(proxy, window, NSSize(width: 800, height: 600))
+        XCTAssertEqual(resized.width, 11, accuracy: 0.001)
+        XCTAssertEqual(resized.height, 22, accuracy: 0.001)
+        XCTAssertEqual(recorder.calls.last, "resize")
+
+        // The cache said yes. The wrapped delegate is gone. Sending must sink.
+        proxy.forwardingDelegate = nil
+        XCTAssertFalse(proxy.responds(to: encode))
+        XCTAssertFalse(proxy.responds(to: resize))
+        XCTAssertNil(proxy.forwardingTarget(for: encode))
+        ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
+        _ = proxy.perform(encode, with: window, with: coder)
+        _ = proxy.perform(#selector(NSWindowDelegate.windowDidResize(_:)), with: window)
+        assertResizeSinks(proxy, window, resize)
+        XCTAssertEqual(recorder.calls, ["encode", "resize"])
     }
 
-    func testPrivateAndPublicWindowEventsAreLoggedAndForwarded() {
+    func testSelectorTableNeverThrowsWhenNothingHandlesIt() {
+        let window = makeWindow(title: "pgs2")
+        let coder = NSKeyedArchiver(requiringSecureCoding: false)
+        let names = delegateSelectors
+
+        let bare = ReviewWindowDelegateProxy()
+        for name in names {
+            assertUnsignedSelectorCanBeSent(bare, name, window, coder)
+        }
+
         let proxy = ReviewWindowDelegateProxy()
-        let recorder = RecordingDelegate()
+        proxy.forwardingDelegate = EmptySwiftWindowDelegate()
+        for name in names {
+            assertUnsignedSelectorCanBeSent(proxy, name, window, coder)
+        }
+
+        proxy.forwardingDelegate = nil
+        for name in names {
+            assertUnsignedSelectorCanBeSent(proxy, name, window, coder)
+        }
+    }
+
+    func testForwardingDelegateIsKeptAndPrivateSelectorsStillForward() {
+        let proxy = ReviewWindowDelegateProxy()
+        let window = makeWindow(title: "pgs1")
+        var recorder: RecordingDelegate? = RecordingDelegate()
+        window.delegate = recorder
+        proxy.attach(to: window)
+        recorder = nil
+
+        guard let kept = proxy.forwardingDelegate as? RecordingDelegate else {
+            XCTFail("forwarding delegate was released")
+            return
+        }
+        XCTAssertFalse(window.isRestorable)
+        XCTAssertTrue(window.delegate === proxy)
+
+        let space = NSSelectorFromString("windowDidChangeSpace:")
+        let off = NSSelectorFromString("windowDidOrderOffScreen:")
+        XCTAssertTrue(proxy.responds(to: space))
+        XCTAssertTrue(object(proxy.forwardingTarget(for: space)) === kept)
+        _ = proxy.perform(space, with: window)
+        _ = proxy.perform(off, with: window)
+        XCTAssertEqual(kept.calls, ["space", "ordered off screen"])
+
+        proxy.forwardingDelegate = nil
+        XCTAssertFalse(proxy.responds(to: space))
+        _ = proxy.perform(space, with: window)
+        _ = proxy.perform(off, with: window)
+        XCTAssertEqual(kept.calls, ["space", "ordered off screen"])
+
+        proxy.detach()
+        XCTAssertNil(proxy.forwardingDelegate)
+    }
+
+    func testWindowNotificationsAreLogged() {
+        let proxy = ReviewWindowDelegateProxy()
         let lines = Lines()
         let flags = Flags()
-        proxy.forwardingDelegate = recorder
         proxy.logEvent = { event, title in
             lines.values.append("Review window \(event): \(title)")
         }
         proxy.didBecomeKey = { flags.becameKey = true }
         proxy.willClose = { flags.willClose = true }
-
         let window = makeWindow(title: "pgs1")
-        let note = Notification(name: Notification.Name("review-proxy-test"), object: window)
-        let events: [(Selector, String)] = [
-            (#selector(NSWindowDelegate.windowWillMiniaturize(_:)), "will minimize"),
-            (#selector(NSWindowDelegate.windowDidResignKey(_:)), "resigned key"),
-            (#selector(NSWindowDelegate.windowDidMiniaturize(_:)), "minimized"),
-            (NSSelectorFromString("windowWillOrderOffScreen:"), "will order off screen"),
-            (NSSelectorFromString("windowDidOrderOffScreen:"), "ordered off screen"),
-            (NSSelectorFromString("windowWillOrderOnScreen:"), "will order on screen"),
-            (NSSelectorFromString("windowDidOrderOnScreen:"), "ordered on screen"),
-            (#selector(NSWindowDelegate.windowDidDeminiaturize(_:)), "restored"),
-            (#selector(NSWindowDelegate.windowDidBecomeKey(_:)), "became key"),
-            (#selector(NSWindowDelegate.windowWillEnterFullScreen(_:)), "will enter full screen"),
-            (#selector(NSWindowDelegate.windowDidEnterFullScreen(_:)), "entered full screen"),
-            (#selector(NSWindowDelegate.windowWillExitFullScreen(_:)), "will exit full screen"),
-            (#selector(NSWindowDelegate.windowDidExitFullScreen(_:)), "exited full screen"),
-            (#selector(NSWindowDelegate.windowDidChangeOcclusionState(_:)), "occlusion changed"),
-            (#selector(NSWindowDelegate.windowDidChangeScreen(_:)), "screen changed"),
-            (#selector(NSWindowDelegate.windowWillClose(_:)), "will close")
-        ]
+        proxy.attach(to: window)
 
-        for (selector, event) in events {
-            XCTAssertTrue(proxy.responds(to: selector), event)
-            XCTAssertNil(proxy.forwardingTarget(for: selector), event)
-            proxy.perform(selector, with: note)
+        let events: [(Notification.Name, String)] = [
+            (NSWindow.willMiniaturizeNotification, "will minimize"),
+            (NSWindow.didResignKeyNotification, "resigned key"),
+            (NSWindow.didMiniaturizeNotification, "minimized"),
+            (NSNotification.Name.ReviewWindowWillOrderOffScreen, "will order off screen"),
+            (NSNotification.Name.ReviewWindowDidOrderOffScreen, "ordered off screen"),
+            (NSNotification.Name.ReviewWindowWillOrderOnScreen, "will order on screen"),
+            (NSNotification.Name.ReviewWindowDidOrderOnScreen, "ordered on screen"),
+            (NSWindow.didDeminiaturizeNotification, "restored"),
+            (NSWindow.didBecomeKeyNotification, "became key"),
+            (NSWindow.willEnterFullScreenNotification, "will enter full screen"),
+            (NSWindow.didEnterFullScreenNotification, "entered full screen"),
+            (NSWindow.willExitFullScreenNotification, "will exit full screen"),
+            (NSWindow.didExitFullScreenNotification, "exited full screen"),
+            (NSWindow.didChangeOcclusionStateNotification, "occlusion changed"),
+            (NSWindow.didChangeScreenNotification, "screen changed"),
+            (NSWindow.willCloseNotification, "will close")
+        ]
+        for (name, event) in events {
+            NotificationCenter.default.post(name: name, object: window)
             XCTAssertEqual(lines.values.last, "Review window \(event): pgs1", event)
-            XCTAssertEqual(recorder.calls.last, event, event)
         }
         XCTAssertTrue(flags.becameKey)
         XCTAssertTrue(flags.willClose)
 
-        // A private selector this proxy does not implement still has to move,
-        // unchanged, to the wrapped delegate. That is what keeps a future
-        // AppKit callback from raising unrecognized selector here.
-        let space = NSSelectorFromString("windowDidChangeSpace:")
-        XCTAssertFalse(ReviewWindowDelegateProxy().responds(to: space))
-        XCTAssertTrue(proxy.responds(to: space))
-        let forwarded = object(proxy.forwardingTarget(for: space))
-        XCTAssertTrue(forwarded === recorder)
-        proxy.perform(space, with: note)
-        XCTAssertEqual(recorder.calls.last, "space")
-        XCTAssertEqual(lines.values.last, "Review window will close: pgs1")
+        let other = makeWindow(title: "other")
+        let count = lines.values.count
+        NotificationCenter.default.post(name: NSWindow.didMiniaturizeNotification, object: other)
+        XCTAssertEqual(lines.values.count, count)
 
-        let absent = NSSelectorFromString("reviewProxyAbsent:")
-        XCTAssertFalse(recorder.responds(to: absent))
-        XCTAssertFalse(proxy.responds(to: absent))
-        XCTAssertNil(proxy.forwardingTarget(for: absent))
+        let blank = makeWindow(title: "")
+        proxy.attach(to: blank)
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: blank)
+        XCTAssertEqual(lines.values.last, "Review window resigned key: review")
     }
 
-    func testOrderOffScreenAcceptsANotificationOrTheWindow() {
-        let proxy = ReviewWindowDelegateProxy()
-        let recorder = RecordingDelegate()
-        let lines = Lines()
-        proxy.forwardingDelegate = recorder
-        proxy.logEvent = { event, title in
-            lines.values.append("Review window \(event): \(title)")
-        }
-        let window = makeWindow(title: "pgs1")
-        let off = NSSelectorFromString("windowDidOrderOffScreen:")
-        proxy.perform(off, with: window)
-        XCTAssertEqual(lines.values, ["Review window ordered off screen: pgs1"])
-        XCTAssertEqual(recorder.calls, ["ordered off screen"])
-
-        let on = NSSelectorFromString("windowDidOrderOnScreen:")
-        let note = Notification(name: Notification.Name("ordered-on"), object: window)
-        proxy.perform(on, with: note)
-        XCTAssertEqual(lines.values.last, "Review window ordered on screen: pgs1")
-        XCTAssertEqual(recorder.calls.last, "ordered on screen")
-    }
-
-    func testOrderSelectorsSurviveANilWrappedDelegateAndARealMiniaturize() {
-        let orderSelectors = [
-            "windowWillOrderOffScreen:",
-            "windowDidOrderOffScreen:",
-            "windowWillOrderOnScreen:",
-            "windowDidOrderOnScreen:"
-        ]
+    func testAttachDisablesRestorationAndSurvivesMiniaturizeAndEncode() {
         let proxy = ReviewWindowDelegateProxy()
         let lines = Lines()
         proxy.logEvent = { event, title in
             lines.values.append("Review window \(event): \(title)")
         }
-        let window = makeWindow(title: "pgs1")
-        let note = Notification(name: Notification.Name("order"), object: window)
-
-        // Gone target: these four are real methods, so they still answer and run.
-        // A selector only a wrapped delegate implemented must answer no.
-        let onlyWrapped = NSSelectorFromString("windowDidChangeSpace:")
+        let window = makeWindow(title: "pgs2")
+        window.isRestorable = true
         let recorder = RecordingDelegate()
-        proxy.forwardingDelegate = recorder
-        XCTAssertTrue(proxy.responds(to: onlyWrapped))
-        proxy.forwardingDelegate = nil
-        XCTAssertFalse(proxy.responds(to: onlyWrapped))
-        XCTAssertNil(proxy.forwardingTarget(for: onlyWrapped))
+        window.delegate = recorder
+        proxy.attach(to: window)
+        XCTAssertFalse(window.isRestorable)
+        XCTAssertTrue(window.delegate === proxy)
 
-        for name in orderSelectors {
-            let selector = NSSelectorFromString(name)
-            XCTAssertTrue(proxy.responds(to: selector), name)
-            XCTAssertNil(proxy.forwardingTarget(for: selector), name)
-            proxy.perform(selector, with: note)
-        }
-        XCTAssertEqual(lines.values, [
-            "Review window will order off screen: pgs1",
-            "Review window ordered off screen: pgs1",
-            "Review window will order on screen: pgs1",
-            "Review window ordered on screen: pgs1"
-        ])
-
-        proxy.forwardingDelegate = recorder
-        lines.values.removeAll()
-        recorder.calls.removeAll()
-        for name in orderSelectors {
-            let selector = NSSelectorFromString(name)
-            XCTAssertTrue(proxy.responds(to: selector), name)
-            XCTAssertNil(proxy.forwardingTarget(for: selector), name)
-            proxy.perform(selector, with: window)
-        }
-        XCTAssertEqual(recorder.calls, [
-            "will order off screen",
-            "ordered off screen",
-            "will order on screen",
-            "ordered on screen"
-        ])
-
-        window.delegate = proxy
         window.animationBehavior = .none
         window.orderFrontRegardless()
         window.miniaturize(nil)
         window.deminiaturize(nil)
         window.orderFrontRegardless()
+
+        window.isRestorable = true
+        window.invalidateRestorableState()
+        let coder = NSKeyedArchiver(requiringSecureCoding: false)
+        // NSWindow refuses to encode itself into a plain keyed archiver here.
+        // Send the delegate message directly, which is what AppKit does after
+        // it has cached a yes.
+        ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
+        XCTAssertEqual(recorder.calls.last, "encode")
+        XCTAssertTrue(recorder.lastCoder === coder)
+
+        proxy.forwardingDelegate = nil
+        window.invalidateRestorableState()
+        ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
+        window.isRestorable = false
+        assertResizeSinks(proxy, window, #selector(NSWindowDelegate.windowWillResize(_:to:)))
+
         for line in lines.values {
             XCTAssertTrue(line.hasPrefix("Review window "), line)
         }
-    }
-
-    func testWrappedSwiftDelegateIsForwardedOnlyWhenItResponds() {
-        let proxy = ReviewWindowDelegateProxy()
-        let empty = EmptySwiftWindowDelegate()
-        let resize = #selector(NSWindowDelegate.windowDidResize(_:))
-        XCTAssertFalse(proxy.responds(to: resize))
-        proxy.forwardingDelegate = empty
-        // A Swift delegate may answer yes without a signature. This proxy
-        // claims the selector only when that message can actually be delivered.
-        if proxy.responds(to: resize) {
-            let forwarded = object(proxy.forwardingTarget(for: resize))
-            XCTAssertTrue(forwarded === empty)
-        } else {
-            XCTAssertNil(proxy.forwardingTarget(for: resize))
-        }
-        proxy.forwardingDelegate = nil
-        XCTAssertFalse(proxy.responds(to: resize))
     }
 
     func testClosePromptAllowsACleanWindowAndDefersADirtyOne() {
@@ -247,6 +258,71 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
     }
 }
 
+/// Selectors AppKit can ask a window delegate about, plus the private order
+/// messages this app has already crashed on, plus names that do not exist.
+private let delegateSelectors = [
+    "windowShouldClose:",
+    "windowWillResize:toSize:",
+    "windowDidResize:",
+    "windowWillStartLiveResize:",
+    "windowDidEndLiveResize:",
+    "windowWillMiniaturize:",
+    "windowDidMiniaturize:",
+    "windowDidDeminiaturize:",
+    "windowWillClose:",
+    "windowDidBecomeKey:",
+    "windowDidResignKey:",
+    "windowDidBecomeMain:",
+    "windowDidResignMain:",
+    "windowWillMove:",
+    "windowDidMove:",
+    "windowDidExpose:",
+    "windowDidChangeScreen:",
+    "windowDidChangeScreenProfile:",
+    "windowDidChangeBackingProperties:",
+    "windowDidUpdate:",
+    "windowWillBeginSheet:",
+    "windowDidEndSheet:",
+    "window:willPositionSheet:usingRect:",
+    "windowWillUseStandardFrame:defaultFrame:",
+    "windowShouldZoom:toFrame:",
+    "window:willEncodeRestorableState:",
+    "window:didDecodeRestorableState:",
+    "windowWillReturnFieldEditor:toObject:",
+    "windowWillReturnUndoManager:",
+    "window:shouldPopUpDocumentPathMenu:",
+    "window:shouldDragDocumentWithEvent:from:withPasteboard:",
+    "windowWillEnterFullScreen:",
+    "windowDidEnterFullScreen:",
+    "windowWillExitFullScreen:",
+    "windowDidExitFullScreen:",
+    "window:willUseFullScreenContentSize:",
+    "window:willUseFullScreenPresentationOptions:",
+    "customWindowsToEnterFullScreenForWindow:",
+    "customWindowsToEnterFullScreenForWindow:onScreen:",
+    "window:startCustomAnimationToEnterFullScreenWithDuration:",
+    "window:startCustomAnimationToEnterFullScreenOnScreen:withDuration:",
+    "customWindowsToExitFullScreenForWindow:",
+    "window:startCustomAnimationToExitFullScreenWithDuration:",
+    "windowDidFailToEnterFullScreen:",
+    "windowDidFailToExitFullScreen:",
+    "windowWillEnterVersionBrowser:",
+    "windowDidEnterVersionBrowser:",
+    "windowWillExitVersionBrowser:",
+    "windowDidExitVersionBrowser:",
+    "window:willResizeForVersionBrowserWithMaxPreferredSize:maxAllowedSize:",
+    "windowDidChangeOcclusionState:",
+    "previewRepresentableActivityItemsForWindow:",
+    "windowForSharingRequestFromWindow:",
+    "windowWillOrderOffScreen:",
+    "windowDidOrderOffScreen:",
+    "windowWillOrderOnScreen:",
+    "windowDidOrderOnScreen:",
+    "windowDidChangeSpace:",
+    "reviewProxyAbsent:",
+    "reviewProxyAbsent::"
+]
+
 /// `forwardingTarget(for:)` is `Any?`. Unwrap before the object cast.
 private func object(_ value: Any?) -> AnyObject? {
     guard let value else { return nil }
@@ -256,6 +332,52 @@ private func object(_ value: Any?) -> AnyObject? {
 /// Close also orders the window out, which can log between these lines.
 private func matching(_ lines: [String], prefix: String) -> [String] {
     lines.filter { $0.hasPrefix(prefix) }
+}
+
+@MainActor
+private func assertResizeSinks(_ proxy: ReviewWindowDelegateProxy, _ window: NSWindow, _ selector: Selector) {
+    let signature = ReviewWindowDelegateProxyDescribe(proxy, selector)
+    XCTAssertEqual(Int(signature.argumentCount), 4)
+    XCTAssertEqual(Int(signature.returnLength), MemoryLayout<NSSize>.size)
+    guard signature.argumentCount == 4,
+          Int(signature.returnLength) == MemoryLayout<NSSize>.size else {
+        return
+    }
+    let result = ReviewWindowDelegateProxyProbeResize(proxy, window, NSSize(width: 800, height: 600))
+    XCTAssertEqual(result.width, 0, accuracy: 0.001)
+    XCTAssertEqual(result.height, 0, accuracy: 0.001)
+}
+
+/// Sends a selector the proxy does not claim. Object arguments go through
+/// `perform`; struct arguments still need a signature so the sink can run.
+@MainActor
+private func assertUnsignedSelectorCanBeSent(
+    _ proxy: ReviewWindowDelegateProxy,
+    _ name: String,
+    _ window: NSWindow,
+    _ coder: NSCoder
+) {
+    let selector = NSSelectorFromString(name)
+    let signature = ReviewWindowDelegateProxyDescribe(proxy, selector)
+    XCTAssertGreaterThan(signature.argumentCount, 0, name)
+    guard signature.argumentCount > 2 else { return }
+    if name == "windowShouldClose:" {
+        XCTAssertTrue(proxy.responds(to: selector), name)
+        _ = proxy.perform(selector, with: window)
+        return
+    }
+    guard !proxy.responds(to: selector) else {
+        XCTAssertNotNil(proxy.forwardingTarget(for: selector), name)
+        return
+    }
+    XCTAssertNil(proxy.forwardingTarget(for: selector), name)
+    let extras = Int(signature.argumentCount) - 2
+    guard signature.objectArguments.boolValue, extras > 0, extras <= 2 else { return }
+    if extras == 1 {
+        _ = proxy.perform(selector, with: window)
+    } else if signature.returnLength == 0 {
+        _ = proxy.perform(selector, with: window, with: coder)
+    }
 }
 
 @MainActor
@@ -292,31 +414,37 @@ private final class EmptySwiftWindowDelegate: NSObject, NSWindowDelegate {}
 
 private final class RecordingDelegate: NSObject, NSWindowDelegate {
     var calls: [String] = []
+    var lastCoder: NSCoder?
 
-    func windowDidBecomeKey(_ notification: Notification) { calls.append("became key") }
-    func windowDidResignKey(_ notification: Notification) { calls.append("resigned key") }
-    func windowWillMiniaturize(_ notification: Notification) { calls.append("will minimize") }
-    func windowDidMiniaturize(_ notification: Notification) { calls.append("minimized") }
-    func windowDidDeminiaturize(_ notification: Notification) { calls.append("restored") }
-    func windowWillClose(_ notification: Notification) { calls.append("will close") }
-    func windowWillEnterFullScreen(_ notification: Notification) { calls.append("will enter full screen") }
-    func windowDidEnterFullScreen(_ notification: Notification) { calls.append("entered full screen") }
-    func windowWillExitFullScreen(_ notification: Notification) { calls.append("will exit full screen") }
-    func windowDidExitFullScreen(_ notification: Notification) { calls.append("exited full screen") }
-    func windowDidChangeOcclusionState(_ notification: Notification) { calls.append("occlusion changed") }
-    func windowDidChangeScreen(_ notification: Notification) { calls.append("screen changed") }
+    func windowDidResize(_ notification: Notification) { calls.append("resized") }
 
-    @objc(windowWillOrderOffScreen:)
-    func windowWillOrderOffScreen(_ argument: Any) { calls.append("will order off screen") }
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        calls.append("resize")
+        return NSSize(width: 11, height: 22)
+    }
 
+    @objc(window:willEncodeRestorableState:)
+    func window(_ window: NSWindow, willEncodeRestorableState coder: NSCoder) {
+        calls.append("encode")
+        lastCoder = coder
+    }
+
+    @objc(window:didDecodeRestorableState:)
+    func window(_ window: NSWindow, didDecodeRestorableState coder: NSCoder) {
+        calls.append("decode")
+        lastCoder = coder
+    }
+}
+
+/// Private selectors live outside the `NSWindowDelegate` conformance.
+/// `windowDidChangeSpace` is close enough to `windowDidChangeScreen` that
+/// Swift treats the in-class method as a mistaken protocol witness.
+private extension RecordingDelegate {
     @objc(windowDidOrderOffScreen:)
     func windowDidOrderOffScreen(_ argument: Any) { calls.append("ordered off screen") }
 
     @objc(windowWillOrderOnScreen:)
     func windowWillOrderOnScreen(_ argument: Any) { calls.append("will order on screen") }
-
-    @objc(windowDidOrderOnScreen:)
-    func windowDidOrderOnScreen(_ argument: Any) { calls.append("ordered on screen") }
 
     @objc(windowDidChangeSpace:)
     func windowDidChangeSpace(_ argument: Any) { calls.append("space") }
