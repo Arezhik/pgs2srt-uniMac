@@ -364,6 +364,8 @@ final class AppModel: ObservableObject {
     }
 
     private func writeReview(_ file: ReviewFileModel, to path: String, host: NSWindow?) async -> Bool {
+        let name = ReviewFormat.title(for: items.first { $0.id == file.itemID }?.name ?? "Subtitles")
+        DebugLog.shared.record(.lifecycle, "Review save started \(name)")
         let plan = ReviewWritePlanner.plan(
             path: path,
             plannedPath: file.plannedPath,
@@ -377,18 +379,22 @@ final class AppModel: ObservableObject {
                     queue.rememberOverwriteAnswer(.replace(applyToAll: true))
                 }
             case .skip, .cancel:
+                DebugLog.shared.record(.lifecycle, "Review save cancelled \(name)")
                 return false
             }
         }
         do {
             try await queue.saveReview(id: file.itemID, to: path)
             file.noteExternalChange()
+            DebugLog.shared.record(.lifecycle, "Review save finished \(name)")
             return true
         } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? "The .srt file could not be written."
+            DebugLog.shared.record(.error, "Review save failed \(name): \(message)", isError: true)
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Could not save the subtitle"
-            alert.informativeText = (error as? LocalizedError)?.errorDescription ?? "The .srt file could not be written."
+            alert.informativeText = message
             alert.addButton(withTitle: "OK")
             if let host {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in

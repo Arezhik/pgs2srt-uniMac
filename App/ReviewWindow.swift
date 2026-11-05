@@ -1462,14 +1462,13 @@ private final class ReviewWindowAnchor: NSView {
         install()
     }
 
-    override func layout() {
-        super.layout()
-        install()
-    }
-
     func install() {
         guard let window else { return }
-        window.isDocumentEdited = documentEdited
+        // Only touch the edited dot when it changes. Setting it from layout()
+        // re-enters layout while the window is minimizing.
+        if window.isDocumentEdited != documentEdited {
+            window.isDocumentEdited = documentEdited
+        }
         proxy.isDirty = isDirty
         proxy.onKey = onKey
         proxy.onClose = onClose
@@ -1504,22 +1503,83 @@ private final class ReviewCloseProxy: NSObject, NSWindowDelegate {
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
+        log("became key", notification)
         onKey()
         forward?.windowDidBecomeKey?(notification)
     }
 
+    func windowDidResignKey(_ notification: Notification) {
+        log("resigned key", notification)
+        forward?.windowDidResignKey?(notification)
+    }
+
+    func windowWillMiniaturize(_ notification: Notification) {
+        log("will minimize", notification)
+        forward?.windowWillMiniaturize?(notification)
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        log("minimized", notification)
+        forward?.windowDidMiniaturize?(notification)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        log("restored", notification)
+        forward?.windowDidDeminiaturize?(notification)
+    }
+
     func windowWillClose(_ notification: Notification) {
+        log("will close", notification)
         onClose()
         forward?.windowWillClose?(notification)
     }
 
+    /// Selectors this object actually implements. A Swift `NSWindowDelegate`
+    /// otherwise reports that it responds to every optional method. AppKit
+    /// then sends `windowDidMiniaturize:` on minimize and raises
+    /// NSInvalidArgumentException because there is no implementation.
+    private static let implemented: Set<Selector> = [
+        #selector(windowShouldClose(_:)),
+        #selector(windowDidBecomeKey(_:)),
+        #selector(windowDidResignKey(_:)),
+        #selector(windowWillMiniaturize(_:)),
+        #selector(windowDidMiniaturize(_:)),
+        #selector(windowDidDeminiaturize(_:)),
+        #selector(windowWillClose(_:))
+    ]
+
     override func responds(to aSelector: Selector!) -> Bool {
-        if super.responds(to: aSelector) { return true }
+        guard let aSelector else { return false }
+        if Self.implemented.contains(aSelector) { return true }
         return forward?.responds(to: aSelector) ?? false
     }
 
     override func forwardingTarget(for aSelector: Selector!) -> Any? {
-        if super.responds(to: aSelector) { return nil }
+        guard let aSelector, !Self.implemented.contains(aSelector) else { return nil }
         return forward
+    }
+
+    override func methodSignature(for aSelector: Selector!) -> NSMethodSignature? {
+        guard let aSelector else { return nil }
+        if Self.implemented.contains(aSelector) {
+            return super.methodSignature(for: aSelector)
+        }
+        if let object = forward as? NSObject, object.responds(to: aSelector) {
+            return object.methodSignature(for: aSelector)
+        }
+        return super.methodSignature(for: aSelector)
+    }
+
+    override func forwardInvocation(_ anInvocation: NSInvocation) {
+        if let object = forward as? NSObject, object.responds(to: anInvocation.selector) {
+            anInvocation.invoke(withTarget: object)
+            return
+        }
+        super.forwardInvocation(anInvocation)
+    }
+
+    private func log(_ event: String, _ notification: Notification) {
+        let title = (notification.object as? NSWindow)?.title ?? "review"
+        DebugLog.shared.record(.lifecycle, "Review window \(event): \(title)")
     }
 }
