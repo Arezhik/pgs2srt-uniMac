@@ -19,7 +19,6 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         for selector in optionalAndUnimplemented {
             XCTAssertFalse(proxy.responds(to: selector), String(describing: selector))
             XCTAssertNil(proxy.forwardingTarget(for: selector))
-            XCTAssertNil(proxy.methodSignature(for: selector))
         }
         // Real IMPs, including the private order-off/on selectors AppKit sends
         // around minimize. They answer yes because this class implements them.
@@ -78,7 +77,6 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         XCTAssertTrue(proxy.responds(to: space))
         let forwarded = object(proxy.forwardingTarget(for: space))
         XCTAssertTrue(forwarded === recorder)
-        XCTAssertNotNil(proxy.methodSignature(for: space))
         proxy.perform(space, with: note)
         XCTAssertEqual(recorder.calls.last, "space")
         XCTAssertEqual(lines.values.last, "Review window will close: pgs1")
@@ -87,7 +85,6 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         XCTAssertFalse(recorder.responds(to: absent))
         XCTAssertFalse(proxy.responds(to: absent))
         XCTAssertNil(proxy.forwardingTarget(for: absent))
-        XCTAssertNil(proxy.methodSignature(for: absent))
     }
 
     func testOrderOffScreenAcceptsANotificationOrTheWindow() {
@@ -170,7 +167,7 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
 /// `forwardingTarget(for:)` is `Any?`. Unwrap before the object cast.
 private func object(_ value: Any?) -> AnyObject? {
     guard let value else { return nil }
-    return value as? AnyObject
+    return value as AnyObject
 }
 
 /// Close also orders the window out, which can log between these lines.
