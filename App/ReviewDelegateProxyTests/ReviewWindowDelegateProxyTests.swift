@@ -23,7 +23,9 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         // Real IMPs, including the private order-off/on selectors AppKit sends
         // around minimize. They answer yes because this class implements them.
         XCTAssertTrue(proxy.responds(to: #selector(NSWindowDelegate.windowDidMiniaturize(_:))))
+        XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowWillOrderOffScreen:")))
         XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowDidOrderOffScreen:")))
+        XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowWillOrderOnScreen:")))
         XCTAssertTrue(proxy.responds(to: NSSelectorFromString("windowDidOrderOnScreen:")))
         XCTAssertNil(proxy.forwardingTarget(for: #selector(NSWindowDelegate.windowDidMiniaturize(_:))))
     }
@@ -46,7 +48,9 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
             (#selector(NSWindowDelegate.windowWillMiniaturize(_:)), "will minimize"),
             (#selector(NSWindowDelegate.windowDidResignKey(_:)), "resigned key"),
             (#selector(NSWindowDelegate.windowDidMiniaturize(_:)), "minimized"),
+            (NSSelectorFromString("windowWillOrderOffScreen:"), "will order off screen"),
             (NSSelectorFromString("windowDidOrderOffScreen:"), "ordered off screen"),
+            (NSSelectorFromString("windowWillOrderOnScreen:"), "will order on screen"),
             (NSSelectorFromString("windowDidOrderOnScreen:"), "ordered on screen"),
             (#selector(NSWindowDelegate.windowDidDeminiaturize(_:)), "restored"),
             (#selector(NSWindowDelegate.windowDidBecomeKey(_:)), "became key"),
@@ -108,19 +112,87 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
         XCTAssertEqual(recorder.calls.last, "ordered on screen")
     }
 
+    func testOrderSelectorsSurviveANilWrappedDelegateAndARealMiniaturize() {
+        let orderSelectors = [
+            "windowWillOrderOffScreen:",
+            "windowDidOrderOffScreen:",
+            "windowWillOrderOnScreen:",
+            "windowDidOrderOnScreen:"
+        ]
+        let proxy = ReviewWindowDelegateProxy()
+        let lines = Lines()
+        proxy.logEvent = { event, title in
+            lines.values.append("Review window \(event): \(title)")
+        }
+        let window = makeWindow(title: "pgs1")
+        let note = Notification(name: Notification.Name("order"), object: window)
+
+        // Gone target: these four are real methods, so they still answer and run.
+        // A selector only a wrapped delegate implemented must answer no.
+        let onlyWrapped = NSSelectorFromString("windowDidChangeSpace:")
+        let recorder = RecordingDelegate()
+        proxy.forwardingDelegate = recorder
+        XCTAssertTrue(proxy.responds(to: onlyWrapped))
+        proxy.forwardingDelegate = nil
+        XCTAssertFalse(proxy.responds(to: onlyWrapped))
+        XCTAssertNil(proxy.forwardingTarget(for: onlyWrapped))
+
+        for name in orderSelectors {
+            let selector = NSSelectorFromString(name)
+            XCTAssertTrue(proxy.responds(to: selector), name)
+            XCTAssertNil(proxy.forwardingTarget(for: selector), name)
+            proxy.perform(selector, with: note)
+        }
+        XCTAssertEqual(lines.values, [
+            "Review window will order off screen: pgs1",
+            "Review window ordered off screen: pgs1",
+            "Review window will order on screen: pgs1",
+            "Review window ordered on screen: pgs1"
+        ])
+
+        proxy.forwardingDelegate = recorder
+        lines.values.removeAll()
+        recorder.calls.removeAll()
+        for name in orderSelectors {
+            let selector = NSSelectorFromString(name)
+            XCTAssertTrue(proxy.responds(to: selector), name)
+            XCTAssertNil(proxy.forwardingTarget(for: selector), name)
+            proxy.perform(selector, with: window)
+        }
+        XCTAssertEqual(recorder.calls, [
+            "will order off screen",
+            "ordered off screen",
+            "will order on screen",
+            "ordered on screen"
+        ])
+
+        window.delegate = proxy
+        window.animationBehavior = .none
+        window.orderFrontRegardless()
+        window.miniaturize(nil)
+        window.deminiaturize(nil)
+        window.orderFrontRegardless()
+        for line in lines.values {
+            XCTAssertTrue(line.hasPrefix("Review window "), line)
+        }
+    }
+
     func testWrappedSwiftDelegateIsForwardedOnlyWhenItResponds() {
         let proxy = ReviewWindowDelegateProxy()
         let empty = EmptySwiftWindowDelegate()
         let resize = #selector(NSWindowDelegate.windowDidResize(_:))
         XCTAssertFalse(proxy.responds(to: resize))
         proxy.forwardingDelegate = empty
-        XCTAssertEqual(proxy.responds(to: resize), empty.responds(to: resize))
-        if empty.responds(to: resize) {
+        // A Swift delegate may answer yes without a signature. This proxy
+        // claims the selector only when that message can actually be delivered.
+        if proxy.responds(to: resize) {
             let forwarded = object(proxy.forwardingTarget(for: resize))
             XCTAssertTrue(forwarded === empty)
         } else {
             XCTAssertNil(proxy.forwardingTarget(for: resize))
         }
+        proxy.forwardingDelegate = nil
+        XCTAssertFalse(proxy.responds(to: resize))
     }
 
     func testClosePromptAllowsACleanWindowAndDefersADirtyOne() {
@@ -234,8 +306,14 @@ private final class RecordingDelegate: NSObject, NSWindowDelegate {
     func windowDidChangeOcclusionState(_ notification: Notification) { calls.append("occlusion changed") }
     func windowDidChangeScreen(_ notification: Notification) { calls.append("screen changed") }
 
+    @objc(windowWillOrderOffScreen:)
+    func windowWillOrderOffScreen(_ argument: Any) { calls.append("will order off screen") }
+
     @objc(windowDidOrderOffScreen:)
     func windowDidOrderOffScreen(_ argument: Any) { calls.append("ordered off screen") }
+
+    @objc(windowWillOrderOnScreen:)
+    func windowWillOrderOnScreen(_ argument: Any) { calls.append("will order on screen") }
 
     @objc(windowDidOrderOnScreen:)
     func windowDidOrderOnScreen(_ argument: Any) { calls.append("ordered on screen") }

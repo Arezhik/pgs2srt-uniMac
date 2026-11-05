@@ -1,10 +1,24 @@
 #import "ReviewWindowDelegateProxy.h"
+#import <objc/runtime.h>
+
+static BOOL ReviewProxyImplementsSelector(id self, SEL selector) {
+    if (selector == NULL) {
+        return NO;
+    }
+    // The method list only. NSObject's respondsToSelector: is the wrong
+    // question once this object forwards: it can answer yes, then
+    // forwardingTargetForSelector: returns nil and AppKit raises
+    // doesNotRecognizeSelector: on this proxy. That is the Dock-restore
+    // crash on windowWillOrderOnScreen:.
+    return class_respondsToSelector(object_getClass(self), selector);
+}
 
 @implementation ReviewWindowDelegateProxy {
     BOOL _allowClose;
 }
 
-- (id)wrappedDelegate {
+/// The wrapped delegate right now. Nil if it was released or points at us.
+- (id)liveWrappedDelegate {
     id wrapped = self.forwardingDelegate;
     if (wrapped == nil || wrapped == self) {
         return nil;
@@ -12,50 +26,50 @@
     return wrapped;
 }
 
-- (BOOL)respondsToSelector:(SEL)aSelector {
-    // Only methods this class implements, or methods the wrapped delegate can run.
-    // Do not inherit Swift's "yes" for every optional NSWindowDelegate method.
-    if ([super respondsToSelector:aSelector]) {
-        return YES;
-    }
-    id wrapped = [self wrappedDelegate];
-    return wrapped != nil && [wrapped respondsToSelector:aSelector];
-}
-
-- (id)forwardingTargetForSelector:(SEL)aSelector {
-    // Our own methods must not be forwarded, or the call loops.
-    if ([super respondsToSelector:aSelector]) {
+/// Nil when this class implements `selector` or the wrapped delegate cannot take it.
+- (id)targetForSelector:(SEL)selector {
+    if (ReviewProxyImplementsSelector(self, selector)) {
         return nil;
     }
-    id wrapped = [self wrappedDelegate];
-    if (wrapped != nil && [wrapped respondsToSelector:aSelector]) {
-        return wrapped;
+    id wrapped = [self liveWrappedDelegate];
+    if (wrapped == nil || ![wrapped respondsToSelector:selector]) {
+        return nil;
     }
-    return [super forwardingTargetForSelector:aSelector];
+    if ([wrapped methodSignatureForSelector:selector] == nil) {
+        return nil;
+    }
+    return wrapped;
 }
 
-- (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector {
-    NSMethodSignature *signature = [super methodSignatureForSelector:aSelector];
-    if (signature != nil) {
-        return signature;
+- (BOOL)respondsToSelector:(SEL)selector {
+    if (ReviewProxyImplementsSelector(self, selector)) {
+        return YES;
     }
-    id wrapped = [self wrappedDelegate];
-    if (wrapped != nil && [wrapped respondsToSelector:aSelector]) {
-        return [wrapped methodSignatureForSelector:aSelector];
+    // Same object forwarding will use. A gone or unsigned target is NO.
+    return [self targetForSelector:selector] != nil;
+}
+
+- (id)forwardingTargetForSelector:(SEL)selector {
+    return [self targetForSelector:selector];
+}
+
+- (NSMethodSignature *)methodSignatureForSelector:(SEL)selector {
+    if (ReviewProxyImplementsSelector(self, selector)) {
+        return [super methodSignatureForSelector:selector];
     }
-    return nil;
+    id wrapped = [self targetForSelector:selector];
+    if (wrapped == nil) {
+        return nil;
+    }
+    return [wrapped methodSignatureForSelector:selector];
 }
 
 - (void)forwardInvocation:(NSInvocation *)invocation {
-    // Slow path used when AppKit looks up an IMP instead of objc_msgSend.
-    // Same rule as forwardingTargetForSelector:.
-    id wrapped = [self wrappedDelegate];
-    SEL selector = invocation.selector;
-    if (wrapped != nil && [wrapped respondsToSelector:selector]) {
+    // Slow path. Do not call super: that raises doesNotRecognizeSelector:.
+    id wrapped = [self targetForSelector:invocation.selector];
+    if (wrapped != nil) {
         [invocation invokeWithTarget:wrapped];
-        return;
     }
-    [super forwardInvocation:invocation];
 }
 
 - (BOOL)windowShouldClose:(NSWindow *)sender {
@@ -118,9 +132,19 @@
     [self forwardSelector:@selector(windowDidDeminiaturize:) argument:notification];
 }
 
+- (void)windowWillOrderOffScreen:(id)argument {
+    [self emit:@"will order off screen" window:[self windowFromArgument:argument]];
+    [self forwardSelector:@selector(windowWillOrderOffScreen:) argument:argument];
+}
+
 - (void)windowDidOrderOffScreen:(id)argument {
     [self emit:@"ordered off screen" window:[self windowFromArgument:argument]];
     [self forwardSelector:@selector(windowDidOrderOffScreen:) argument:argument];
+}
+
+- (void)windowWillOrderOnScreen:(id)argument {
+    [self emit:@"will order on screen" window:[self windowFromArgument:argument]];
+    [self forwardSelector:@selector(windowWillOrderOnScreen:) argument:argument];
 }
 
 - (void)windowDidOrderOnScreen:(id)argument {
@@ -197,8 +221,12 @@
 }
 
 - (void)forwardSelector:(SEL)selector argument:(id)argument {
-    id wrapped = [self wrappedDelegate];
+    // Our IMP is running, so targetForSelector: would refuse to forward it.
+    id wrapped = [self liveWrappedDelegate];
     if (wrapped == nil || ![wrapped respondsToSelector:selector]) {
+        return;
+    }
+    if ([wrapped methodSignatureForSelector:selector] == nil) {
         return;
     }
 #pragma clang diagnostic push

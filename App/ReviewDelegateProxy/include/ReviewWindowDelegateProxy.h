@@ -4,11 +4,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// Window delegate that owns the close prompt and forwards every other message.
 ///
-/// Implemented in Objective-C on purpose. A Swift `NSWindowDelegate` reports
-/// that it responds to selectors it cannot run, and Swift's
-/// `forwardingTarget(for:)` is not the hook the Objective-C runtime calls.
-/// Minimize then sends the private `windowDidOrderOffScreen:` and AppKit
-/// raises NSInvalidArgumentException.
+/// Implemented in Objective-C on purpose. `respondsToSelector:` is true only
+/// when this class has a real method, or the wrapped delegate currently
+/// responds and can supply a method signature. Forwarding reads that same
+/// delegate again at call time. A nil delegate is a no, never a yes.
+/// Dock restore sends the private `windowWillOrderOnScreen:`.
 @interface ReviewWindowDelegateProxy : NSObject <NSWindowDelegate>
 
 /// The SwiftUI delegate that was on the window before this proxy.
