@@ -370,7 +370,7 @@ private func assertUnsignedSelectorCanBeSent(
     }
     XCTAssertNil(proxy.forwardingTarget(for: selector), name)
     let extras = Int(signature.argumentCount) - 2
-    guard signature.objectArguments, extras > 0, extras <= 2 else { return }
+    guard signature.objectArguments.boolValue, extras > 0, extras <= 2 else { return }
     if extras == 1 {
         _ = proxy.perform(selector, with: window)
     } else if signature.returnLength == 0 {
