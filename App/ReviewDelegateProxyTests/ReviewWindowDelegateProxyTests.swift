@@ -19,11 +19,14 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
 
         XCTAssertFalse(proxy.responds(to: encode))
         XCTAssertFalse(proxy.responds(to: unknown))
-        XCTAssertNotNil(proxy.methodSignature(for: encode))
-        XCTAssertNotNil(proxy.methodSignature(for: unknown))
-        XCTAssertNotNil(proxy.methodSignature(for: unknownTwo))
-        XCTAssertEqual(proxy.methodSignature(for: encode)?.numberOfArguments, 4)
-        XCTAssertEqual(proxy.methodSignature(for: encode)?.methodReturnLength, 0)
+        let encodeSignature = ReviewWindowDelegateProxyDescribe(proxy, encode)
+        let unknownSignature = ReviewWindowDelegateProxyDescribe(proxy, unknown)
+        let unknownTwoSignature = ReviewWindowDelegateProxyDescribe(proxy, unknownTwo)
+        XCTAssertGreaterThan(encodeSignature.argumentCount, 0)
+        XCTAssertGreaterThan(unknownSignature.argumentCount, 0)
+        XCTAssertGreaterThan(unknownTwoSignature.argumentCount, 0)
+        XCTAssertEqual(encodeSignature.argumentCount, 4)
+        XCTAssertEqual(encodeSignature.returnLength, 0)
 
         ReviewWindowDelegateProxyProbeEncode(proxy, window, coder)
         _ = proxy.perform(encode, with: window, with: coder)
@@ -130,10 +133,10 @@ final class ReviewWindowDelegateProxyTests: XCTestCase {
             (NSWindow.willMiniaturizeNotification, "will minimize"),
             (NSWindow.didResignKeyNotification, "resigned key"),
             (NSWindow.didMiniaturizeNotification, "minimized"),
-            (ReviewWindowWillOrderOffScreenNotification, "will order off screen"),
-            (ReviewWindowDidOrderOffScreenNotification, "ordered off screen"),
-            (ReviewWindowWillOrderOnScreenNotification, "will order on screen"),
-            (ReviewWindowDidOrderOnScreenNotification, "ordered on screen"),
+            (NSNotification.Name.ReviewWindowWillOrderOffScreen, "will order off screen"),
+            (NSNotification.Name.ReviewWindowDidOrderOffScreen, "ordered off screen"),
+            (NSNotification.Name.ReviewWindowWillOrderOnScreen, "will order on screen"),
+            (NSNotification.Name.ReviewWindowDidOrderOnScreen, "ordered on screen"),
             (NSWindow.didDeminiaturizeNotification, "restored"),
             (NSWindow.didBecomeKeyNotification, "became key"),
             (NSWindow.willEnterFullScreenNotification, "will enter full screen"),
@@ -331,11 +334,11 @@ private func matching(_ lines: [String], prefix: String) -> [String] {
 
 @MainActor
 private func assertResizeSinks(_ proxy: ReviewWindowDelegateProxy, _ window: NSWindow, _ selector: Selector) {
-    let signature = proxy.methodSignature(for: selector)
-    XCTAssertEqual(signature?.numberOfArguments, 4)
-    XCTAssertEqual(signature?.methodReturnLength, MemoryLayout<NSSize>.size)
-    guard signature?.numberOfArguments == 4,
-          signature?.methodReturnLength == MemoryLayout<NSSize>.size else {
+    let signature = ReviewWindowDelegateProxyDescribe(proxy, selector)
+    XCTAssertEqual(Int(signature.argumentCount), 4)
+    XCTAssertEqual(Int(signature.returnLength), MemoryLayout<NSSize>.size)
+    guard signature.argumentCount == 4,
+          Int(signature.returnLength) == MemoryLayout<NSSize>.size else {
         return
     }
     let result = ReviewWindowDelegateProxyProbeResize(proxy, window, NSSize(width: 800, height: 600))
@@ -353,9 +356,9 @@ private func assertUnsignedSelectorCanBeSent(
     _ coder: NSCoder
 ) {
     let selector = NSSelectorFromString(name)
-    let signature = proxy.methodSignature(for: selector)
-    XCTAssertNotNil(signature, name)
-    guard let signature else { return }
+    let signature = ReviewWindowDelegateProxyDescribe(proxy, selector)
+    XCTAssertGreaterThan(signature.argumentCount, 0, name)
+    guard signature.argumentCount > 2 else { return }
     if name == "windowShouldClose:" {
         XCTAssertTrue(proxy.responds(to: selector), name)
         _ = proxy.perform(selector, with: window)
@@ -366,18 +369,11 @@ private func assertUnsignedSelectorCanBeSent(
         return
     }
     XCTAssertNil(proxy.forwardingTarget(for: selector), name)
-    let extras = signature.numberOfArguments - 2
-    guard extras > 0, extras <= 2 else { return }
-    for index in 2..<signature.numberOfArguments {
-        let raw = String(cString: signature.getArgumentType(at: index))
-        let isObject = raw == "@" || raw == "#" || raw.hasPrefix("@\"")
-        if !isObject {
-            return
-        }
-    }
+    let extras = Int(signature.argumentCount) - 2
+    guard signature.objectArguments, extras > 0, extras <= 2 else { return }
     if extras == 1 {
         _ = proxy.perform(selector, with: window)
-    } else if signature.methodReturnLength == 0 {
+    } else if signature.returnLength == 0 {
         _ = proxy.perform(selector, with: window, with: coder)
     }
 }
@@ -436,7 +432,12 @@ private final class RecordingDelegate: NSObject, NSWindowDelegate {
         calls.append("decode")
         lastCoder = coder
     }
+}
 
+/// Private selectors live outside the `NSWindowDelegate` conformance.
+/// `windowDidChangeSpace` is close enough to `windowDidChangeScreen` that
+/// Swift treats the in-class method as a mistaken protocol witness.
+private extension RecordingDelegate {
     @objc(windowDidOrderOffScreen:)
     func windowDidOrderOffScreen(_ argument: Any) { calls.append("ordered off screen") }
 

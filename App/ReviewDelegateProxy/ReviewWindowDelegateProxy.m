@@ -1,5 +1,6 @@
 #import "ReviewWindowDelegateProxy.h"
 #import <objc/runtime.h>
+#import <string.h>
 
 NSNotificationName const ReviewWindowWillOrderOffScreenNotification = @"NSWindowWillOrderOffScreenNotification";
 NSNotificationName const ReviewWindowDidOrderOffScreenNotification = @"NSWindowDidOrderOffScreenNotification";
@@ -109,6 +110,41 @@ void ReviewWindowDelegateProxyProbeEncode(id target, NSWindow *window, NSCoder *
 
 NSSize ReviewWindowDelegateProxyProbeResize(id target, NSWindow *window, NSSize proposed) {
     return [target windowWillResize:window toSize:proposed];
+}
+
+static BOOL ReviewArgumentIsObject(const char *raw) {
+    if (raw == NULL) {
+        return NO;
+    }
+    if (strcmp(raw, "@") == 0 || strcmp(raw, "#") == 0) {
+        return YES;
+    }
+    return strncmp(raw, "@\"", 2) == 0;
+}
+
+ReviewProxySignatureInfo ReviewWindowDelegateProxyDescribe(id target, SEL selector) {
+    ReviewProxySignatureInfo info = {0, 0, NO};
+    if (target == nil || selector == NULL) {
+        return info;
+    }
+    NSMethodSignature *signature = [target methodSignatureForSelector:selector];
+    if (signature == nil) {
+        return info;
+    }
+    info.argumentCount = signature.numberOfArguments;
+    info.returnLength = signature.methodReturnLength;
+    if (signature.numberOfArguments <= 2) {
+        return info;
+    }
+    BOOL objects = YES;
+    for (NSUInteger index = 2; index < signature.numberOfArguments; index++) {
+        if (!ReviewArgumentIsObject([signature getArgumentTypeAtIndex:index])) {
+            objects = NO;
+            break;
+        }
+    }
+    info.objectArguments = objects;
+    return info;
 }
 
 @implementation ReviewWindowDelegateProxy {

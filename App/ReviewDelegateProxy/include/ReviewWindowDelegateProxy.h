@@ -46,4 +46,13 @@ FOUNDATION_EXPORT NSNotificationName const ReviewWindowDidOrderOnScreenNotificat
 void ReviewWindowDelegateProxyProbeEncode(id target, NSWindow *window, NSCoder *coder);
 NSSize ReviewWindowDelegateProxyProbeResize(id target, NSWindow *window, NSSize proposed);
 
+/// Test support. `methodSignatureForSelector:` is unavailable in Swift.
+typedef struct {
+    NSUInteger argumentCount;
+    NSUInteger returnLength;
+    BOOL objectArguments;
+} ReviewProxySignatureInfo;
+
+ReviewProxySignatureInfo ReviewWindowDelegateProxyDescribe(id target, SEL selector);
+
 NS_ASSUME_NONNULL_END
