@@ -7,19 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		10B08F643ED2E87F363E062E /* PGS2SRTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_5331709A-8D37-4D12-9436-2F41F7CAFF22" /* PGS2SRTApp.swift */; };
+		1136A5B9ED48E1AA6B35D18A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_074EAA3F-27E7-4861-B381-D55ED9CFDC25" /* SettingsView.swift */; };
+		2036E0238D740C6196E6B07F /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_337BF162-D681-4AA6-927C-B650111AF8BB" /* AppModel.swift */; };
 		2CC09C1C7A9CCD380B0CD334 /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = BB2561138E57D040F3EA914C /* PGSCore */; };
 		37CA7397C38B315F22E70154 /* VisionOCR in Frameworks */ = {isa = PBXBuildFile; productRef = CD6D0404609CCEF8D5099AC4 /* VisionOCR */; };
-		723E09E4C020849D2BC8E4F9 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_8636B612-AC1B-48F0-A0C0-5004401A6A6B" /* AppModel.swift */; };
-		76F05536D2BB19756A796900 /* ReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_E945A092-BBCB-48E4-87F9-B2661599C510" /* ReviewWindow.swift */; };
-		8490FB79E1ADE1E37E0BDD1F /* DebugLogSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_6663328D-88E4-4C49-898E-19DC7F09A8A1" /* DebugLogSupport.swift */; };
-		84CE9E1CC23C0B9C6BE79D55 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_1D5861F6-177C-4C02-87B3-3EF53B46A7E7" /* SettingsView.swift */; };
+		39E185DCB2E321A3E1CDD608 /* DebugLogSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_D0624F73-86D8-44C0-8D0E-16CF4F23B6C8" /* DebugLogSupport.swift */; };
+		7646D304DB7B3886A397378D /* PGS2SRTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_A9F5FD6F-4F40-4C8B-B2D3-6086A07720BC" /* PGS2SRTApp.swift */; };
+		7C5F63180C95629000C1C3A5 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_A4D60817-386C-4AE5-B1BB-7D3BD59ED170" /* ContentView.swift */; };
+		7C8A682BAFF83F4FE0157263 /* ReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_C83E21BF-344A-4307-A6EC-C7CC158FDB05" /* ReviewWindow.swift */; };
 		94F4A9837F19A92CFC7B6385 /* VisionOCR in Frameworks */ = {isa = PBXBuildFile; productRef = A365E27F7A9106C982DAB80C /* VisionOCR */; };
 		A5C8694EE1A70ACB40F90ED6 /* PGS2SRTCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35E26CC2BAEB551C2C9B7C72 /* PGS2SRTCLI.swift */; };
 		AAFAE1218132559B23634E7B /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9E4CAFC4DD918D94C19BB38E /* PGSCore */; };
+		BEA290ECDF1D5E41BBEB9EB6 /* CueTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_61FACC2A-9594-48E4-9E22-9143589ACC42" /* CueTextEditor.swift */; };
 		E26BD97F94B6A533C302637B /* ReviewWindowDelegateProxy.m in Sources */ = {isa = PBXBuildFile; fileRef = 3804615A0580AD285E5648D8 /* ReviewWindowDelegateProxy.m */; };
-		E8B9C2512A024BDF2152CD70 /* CueTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_29906B67-5AF6-4D6E-B02D-89BEA6D46266" /* CueTextEditor.swift */; };
-		F5B3ECBAD73E8F8A853D8649 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_EB7DDD47-E33B-49FC-B2A0-49038CCB97BF" /* ContentView.swift */; };
 		F98908730E6B085DA8539DCE /* HelloWorldUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503CB9507B4D5A38E2081CB2 /* HelloWorldUITests.swift */; };
 /* End PBXBuildFile section */
 
@@ -42,15 +42,15 @@
 		88FCCF7582A151BFF36FE4CE /* PGS2SRT.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PGS2SRT.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BF7142D3159CC7FF12D68CE /* pgs2srt-uniMac */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "pgs2srt-uniMac"; path = ..; sourceTree = SOURCE_ROOT; };
 		F47288C196CAEAECDFB73C0E /* pgs2srt */ = {isa = PBXFileReference; includeInIndex = 0; path = pgs2srt; sourceTree = BUILT_PRODUCTS_DIR; };
-		"TEMP_1D5861F6-177C-4C02-87B3-3EF53B46A7E7" /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
-		"TEMP_29906B67-5AF6-4D6E-B02D-89BEA6D46266" /* CueTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueTextEditor.swift; sourceTree = "<group>"; };
-		"TEMP_5331709A-8D37-4D12-9436-2F41F7CAFF22" /* PGS2SRTApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGS2SRTApp.swift; sourceTree = "<group>"; };
-		"TEMP_6663328D-88E4-4C49-898E-19DC7F09A8A1" /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
-		"TEMP_8636B612-AC1B-48F0-A0C0-5004401A6A6B" /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		"TEMP_AFA951CA-796E-4672-B6B9-B31C0236A6F5" /* PGS2SRT-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PGS2SRT-Bridging-Header.h"; sourceTree = "<group>"; };
-		"TEMP_E945A092-BBCB-48E4-87F9-B2661599C510" /* ReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWindow.swift; sourceTree = "<group>"; };
-		"TEMP_EB7DDD47-E33B-49FC-B2A0-49038CCB97BF" /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		"TEMP_F1A9C7C6-5E7D-4D8C-8AC4-C416F5CC71F4" /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		"TEMP_074EAA3F-27E7-4861-B381-D55ED9CFDC25" /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		"TEMP_337BF162-D681-4AA6-927C-B650111AF8BB" /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		"TEMP_3F642872-F172-4550-8673-9D850978F300" /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		"TEMP_61FACC2A-9594-48E4-9E22-9143589ACC42" /* CueTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueTextEditor.swift; sourceTree = "<group>"; };
+		"TEMP_8B397C55-EC3B-4F6E-85CF-7BC1DF82C606" /* PGS2SRT-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "PGS2SRT-Bridging-Header.h"; sourceTree = "<group>"; };
+		"TEMP_A4D60817-386C-4AE5-B1BB-7D3BD59ED170" /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		"TEMP_A9F5FD6F-4F40-4C8B-B2D3-6086A07720BC" /* PGS2SRTApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGS2SRTApp.swift; sourceTree = "<group>"; };
+		"TEMP_C83E21BF-344A-4307-A6EC-C7CC158FDB05" /* ReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWindow.swift; sourceTree = "<group>"; };
+		"TEMP_D0624F73-86D8-44C0-8D0E-16CF4F23B6C8" /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -154,18 +154,18 @@
 			path = ..;
 			sourceTree = "<group>";
 		};
-		"TEMP_034A768E-D7A5-4D62-8FAD-7355690FE793" /* . */ = {
+		"TEMP_6C313594-6C48-4CDA-B322-B7A7E718F340" /* . */ = {
 			isa = PBXGroup;
 			children = (
-				"TEMP_6663328D-88E4-4C49-898E-19DC7F09A8A1" /* DebugLogSupport.swift */,
-				"TEMP_AFA951CA-796E-4672-B6B9-B31C0236A6F5" /* PGS2SRT-Bridging-Header.h */,
-				"TEMP_1D5861F6-177C-4C02-87B3-3EF53B46A7E7" /* SettingsView.swift */,
-				"TEMP_E945A092-BBCB-48E4-87F9-B2661599C510" /* ReviewWindow.swift */,
-				"TEMP_5331709A-8D37-4D12-9436-2F41F7CAFF22" /* PGS2SRTApp.swift */,
-				"TEMP_8636B612-AC1B-48F0-A0C0-5004401A6A6B" /* AppModel.swift */,
-				"TEMP_29906B67-5AF6-4D6E-B02D-89BEA6D46266" /* CueTextEditor.swift */,
-				"TEMP_EB7DDD47-E33B-49FC-B2A0-49038CCB97BF" /* ContentView.swift */,
-				"TEMP_F1A9C7C6-5E7D-4D8C-8AC4-C416F5CC71F4" /* Info.plist */,
+				"TEMP_D0624F73-86D8-44C0-8D0E-16CF4F23B6C8" /* DebugLogSupport.swift */,
+				"TEMP_8B397C55-EC3B-4F6E-85CF-7BC1DF82C606" /* PGS2SRT-Bridging-Header.h */,
+				"TEMP_074EAA3F-27E7-4861-B381-D55ED9CFDC25" /* SettingsView.swift */,
+				"TEMP_C83E21BF-344A-4307-A6EC-C7CC158FDB05" /* ReviewWindow.swift */,
+				"TEMP_A9F5FD6F-4F40-4C8B-B2D3-6086A07720BC" /* PGS2SRTApp.swift */,
+				"TEMP_337BF162-D681-4AA6-927C-B650111AF8BB" /* AppModel.swift */,
+				"TEMP_61FACC2A-9594-48E4-9E22-9143589ACC42" /* CueTextEditor.swift */,
+				"TEMP_A4D60817-386C-4AE5-B1BB-7D3BD59ED170" /* ContentView.swift */,
+				"TEMP_3F642872-F172-4550-8673-9D850978F300" /* Info.plist */,
 			);
 			name = .;
 			path = .;
@@ -282,14 +282,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				723E09E4C020849D2BC8E4F9 /* AppModel.swift in Sources */,
-				F5B3ECBAD73E8F8A853D8649 /* ContentView.swift in Sources */,
-				E8B9C2512A024BDF2152CD70 /* CueTextEditor.swift in Sources */,
-				8490FB79E1ADE1E37E0BDD1F /* DebugLogSupport.swift in Sources */,
-				10B08F643ED2E87F363E062E /* PGS2SRTApp.swift in Sources */,
-				76F05536D2BB19756A796900 /* ReviewWindow.swift in Sources */,
+				2036E0238D740C6196E6B07F /* AppModel.swift in Sources */,
+				7C5F63180C95629000C1C3A5 /* ContentView.swift in Sources */,
+				BEA290ECDF1D5E41BBEB9EB6 /* CueTextEditor.swift in Sources */,
+				39E185DCB2E321A3E1CDD608 /* DebugLogSupport.swift in Sources */,
+				7646D304DB7B3886A397378D /* PGS2SRTApp.swift in Sources */,
+				7C8A682BAFF83F4FE0157263 /* ReviewWindow.swift in Sources */,
 				E26BD97F94B6A533C302637B /* ReviewWindowDelegateProxy.m in Sources */,
-				84CE9E1CC23C0B9C6BE79D55 /* SettingsView.swift in Sources */,
+				1136A5B9ED48E1AA6B35D18A /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -333,7 +333,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -471,7 +471,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -562,7 +562,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -592,7 +592,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
