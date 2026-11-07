@@ -33,6 +33,7 @@ targets:
         excludes:
           - "ReviewDelegateProxy/**"
           - "ReviewDelegateProxyTests/**"
+          - "P2SUITests/**"
         includes:
           - "*.swift"
           - Info.plist
@@ -119,3 +120,27 @@ targets:
           ARCHS: [arm64, x86_64]
     scheme:
       gatherCoverageData: false
+  PGS2SRTUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: P2SUITests
+    dependencies:
+      - target: PGS2SRT
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.PGS2SRTUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PGS2SRT
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+schemes:
+  PGS2SRT-UITests:
+    build:
+      targets:
+        PGS2SRT: all
+        PGS2SRTUITests: [test]
+    test:
+      targets:
+        - PGS2SRTUITests
