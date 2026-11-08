@@ -57,8 +57,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         # Document types (Blu-ray .sup, folders, and .mkv) live in Info.plist.
         INFOPLIST_FILE: Info.plist
-        MARKETING_VERSION: "0.1.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.1.2"
+        CURRENT_PROJECT_VERSION: "4"
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO
@@ -99,8 +99,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.pgs2srt.pgs2srt
         PRODUCT_NAME: pgs2srt
         GENERATE_INFOPLIST_FILE: YES
-        MARKETING_VERSION: "0.1.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.1.2"
+        CURRENT_PROJECT_VERSION: "4"
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: NO

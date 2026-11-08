@@ -9,6 +9,28 @@ struct ContentView: View {
     @State private var targeted = false
 
     var body: some View {
+        let canReview = canReviewSelected
+        if IssueDiagnosticLog.stableCommands {
+            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: true, canReview: canReview)
+            queueChrome.background {
+                QueueCommandFocus(
+                    canReview: canReview,
+                    review: { reviewSelected(newWindow: false) },
+                    reviewNewWindow: { reviewSelected(newWindow: true) }
+                )
+                .equatable()
+            }
+        } else {
+            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, canReview: canReview)
+            queueChrome.focusedSceneValue(\.queueActions, QueueActions(
+                review: { reviewSelected(newWindow: false) },
+                reviewNewWindow: { reviewSelected(newWindow: true) },
+                canReview: canReview
+            ))
+        }
+    }
+
+    private var queueChrome: some View {
         VStack(spacing: 0) {
             header
             if !model.banners.isEmpty {
@@ -51,11 +73,6 @@ struct ContentView: View {
             openWindow(id: "review", value: request)
             model.reviewOpenRequest = nil
         }
-        .focusedSceneValue(\.queueActions, QueueActions(
-            review: { reviewSelected(newWindow: false) },
-            reviewNewWindow: { reviewSelected(newWindow: true) },
-            canReview: canReviewSelected
-        ))
     }
 
     private var canReviewSelected: Bool {
@@ -264,6 +281,30 @@ private struct SettingsToolbarButtonMacOS14: View {
     }
 }
 
+/// Comparison path for #35. SwiftUI skips this body while `canReview` is unchanged.
+/// The shipping path does not use it. Review, Cancel All, and Clear Finished stay as they are.
+private struct QueueCommandFocus: View, Equatable {
+    var canReview: Bool
+    var review: () -> Void
+    var reviewNewWindow: () -> Void
+
+    static func == (lhs: QueueCommandFocus, rhs: QueueCommandFocus) -> Bool {
+        lhs.canReview == rhs.canReview
+    }
+
+    var body: some View {
+        let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, canReview: canReview)
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .focusedSceneValue(\.queueActions, QueueActions(
+                review: review,
+                reviewNewWindow: reviewNewWindow,
+                canReview: canReview
+            ))
+    }
+}
+
 /// Tags the queue window so a Dock or Open With drop can tell it from Settings.
 private struct QueueWindowMarker: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
@@ -282,7 +323,14 @@ private final class QueueWindowClaim: NSView {
     }
 
     func claim() {
-        window?.identifier = QueueWindow.marker
+        let host = window
+        if IssueDiagnosticLog.enabled {
+            let changed = host.map { $0.identifier != QueueWindow.marker } ?? false
+            host?.identifier = QueueWindow.marker
+            IssueDiagnosticLog.recordWindowMarker(hadWindow: host != nil, identifierChanged: changed)
+        } else {
+            host?.identifier = QueueWindow.marker
+        }
     }
 }
 

@@ -162,11 +162,40 @@ final class ReviewFileModel: ObservableObject {
         }
     }
 
-    func setScope(_ scope: ReviewScope) {
+    func setScope(_ scope: ReviewScope, source: DiagnosticScopeSource) {
+        let before = listFilter.scope
         var filter = listFilter
         filter.setScope(scope, problemIDs: Set(document.problemCues.map(\.id)))
-        guard filter != listFilter else { return }
+        let published = filter != listFilter
+        if IssueDiagnosticLog.enabled {
+            let selectionCount = selection.count
+            let dirty = document.hasUnsavedEdits
+            let sticky = filter.stickyProblemIDs?.count
+            IssueDiagnosticLog.recordScopeBoundary(
+                phase: "before",
+                source: source,
+                from: before,
+                to: scope,
+                selectionCount: selectionCount,
+                dirty: dirty,
+                published: published,
+                stickyCount: sticky
+            )
+        }
+        guard published else { return }
         listFilter = filter
+        if IssueDiagnosticLog.enabled {
+            IssueDiagnosticLog.recordScopeBoundary(
+                phase: "after",
+                source: source,
+                from: before,
+                to: scope,
+                selectionCount: selection.count,
+                dirty: document.hasUnsavedEdits,
+                published: true,
+                stickyCount: filter.stickyProblemIDs?.count
+            )
+        }
     }
 
     func moveSelection(by step: Int) {
@@ -221,24 +250,35 @@ final class ReviewFileModel: ObservableObject {
 
     func endCoalescing() {
         var document = document
-        guard document.endTextCoalescing() else { return }
+        guard document.endTextCoalescing() else {
+            IssueDiagnosticLog.recordCoalesce(phase: "before", published: false)
+            return
+        }
+        IssueDiagnosticLog.recordCoalesce(phase: "before", published: true)
         queue.setReviewDocument(document, for: itemID)
         revision += 1
         onChange()
+        IssueDiagnosticLog.recordCoalesce(phase: "after", published: true)
     }
 
-    func setTiming(id: UUID, startPTS: UInt32, endPTS: UInt32) {
+    func setTiming(id: UUID, startPTS: UInt32, endPTS: UInt32, field: DiagnosticTimeField) {
         let original = document
         var document = original
         do {
             try document.setTiming(id: id, startPTS: startPTS, endPTS: endPTS)
         } catch {
+            IssueDiagnosticLog.recordTimeCommit(field: field, phase: "before", changed: false)
             return
         }
-        guard document != original else { return }
+        guard document != original else {
+            IssueDiagnosticLog.recordTimeCommit(field: field, phase: "before", changed: false)
+            return
+        }
+        IssueDiagnosticLog.recordTimeCommit(field: field, phase: "before", changed: true)
         queue.setReviewDocument(document, for: itemID)
         revision += 1
         onChange()
+        IssueDiagnosticLog.recordTimeCommit(field: field, phase: "after", changed: true)
     }
 
     func deleteSelection() {
@@ -488,8 +528,18 @@ private struct ReviewEditor: View {
             }
         }
         .onChange(of: scope) { newValue in
+            let echoing = newValue == file.scope
+            if IssueDiagnosticLog.enabled {
+                IssueDiagnosticLog.recordScopeIntent(
+                    source: echoing ? .echo : .picker,
+                    from: file.scope,
+                    to: newValue,
+                    selectionCount: file.selection.count,
+                    dirty: file.document.hasUnsavedEdits
+                )
+            }
             Task { @MainActor in
-                file.setScope(newValue)
+                file.setScope(newValue, source: echoing ? .echo : .pickerApply)
             }
         }
         .onChange(of: file.scope) { newValue in
@@ -498,10 +548,13 @@ private struct ReviewEditor: View {
             }
         }
         .onChange(of: selection) { newValue in
+            IssueDiagnosticLog.recordSelection(phase: "intent", count: newValue.count)
             Task { @MainActor in
                 guard file.selection != newValue else { return }
+                IssueDiagnosticLog.recordSelection(phase: "before", count: newValue.count)
                 file.selection = newValue
                 file.endCoalescing()
+                IssueDiagnosticLog.recordSelection(phase: "after", count: newValue.count)
             }
         }
         .onChange(of: file.selection) { newValue in
@@ -518,6 +571,18 @@ private struct ReviewEditor: View {
 
     private var actions: ReviewActions {
         let document = file.document
+        if IssueDiagnosticLog.enabled {
+            IssueDiagnosticLog.recordReviewFocus(ReviewCommandFocusSnapshot(
+                canSaveAll: model.hasReviewsNeedingSave,
+                canUndo: document.canUndo,
+                canRedo: document.canRedo,
+                canMerge: file.canMerge,
+                canDelete: !file.selection.isEmpty,
+                canStepProblem: !document.problemCues.isEmpty,
+                canNextFile: model.nextReviewFile(after: file.itemID) != nil,
+                showPictures: file.showPicturesInList
+            ))
+        }
         return ReviewActions(
             save: { Task { await model.saveReview(itemID: file.itemID, host: NSApp.keyWindow) } },
             saveAs: { Task { await model.saveReviewAs(itemID: file.itemID, host: NSApp.keyWindow) } },
@@ -538,9 +603,9 @@ private struct ReviewEditor: View {
             canStepProblem: !document.problemCues.isEmpty,
             nextFile: { goToNextFile() },
             canNextFile: model.nextReviewFile(after: file.itemID) != nil,
-            showAll: { file.setScope(.all) },
-            showProblems: { file.setScope(.problems) },
-            showEdited: { file.setScope(.edited) },
+            showAll: { file.setScope(.all, source: .command) },
+            showProblems: { file.setScope(.problems, source: .command) },
+            showEdited: { file.setScope(.edited, source: .command) },
             togglePictures: { file.showPicturesInList.toggle() },
             showPictures: file.showPicturesInList,
             findNext: { file.find(step: 1) },
@@ -932,14 +997,19 @@ private struct CueDetail: View {
                     }
                 }
                 HStack(alignment: .top, spacing: 16) {
-                    CueTimeField(title: "Start", pts: cue.startPTS) { next in
-                        file.setTiming(id: cue.id, startPTS: next, endPTS: max(next, cue.endPTS))
+                    CueTimeField(title: "Start", pts: cue.startPTS, field: .start) { next in
+                        file.setTiming(id: cue.id, startPTS: next, endPTS: max(next, cue.endPTS), field: .start)
                     }
-                    CueTimeField(title: "End", pts: cue.endPTS) { next in
-                        file.setTiming(id: cue.id, startPTS: min(cue.startPTS, next), endPTS: next)
+                    CueTimeField(title: "End", pts: cue.endPTS, field: .end) { next in
+                        file.setTiming(id: cue.id, startPTS: min(cue.startPTS, next), endPTS: next, field: .end)
                     }
                     CueDurationField(title: "Duration", duration: cue.durationPTS) { next in
-                        file.setTiming(id: cue.id, startPTS: cue.startPTS, endPTS: CueClock.end(start: cue.startPTS, duration: next))
+                        file.setTiming(
+                            id: cue.id,
+                            startPTS: cue.startPTS,
+                            endPTS: CueClock.end(start: cue.startPTS, duration: next),
+                            field: .duration
+                        )
                     }
                 }
                 around(neighbors)
@@ -1206,6 +1276,7 @@ enum CueImageRenderer {
 private struct CueTimeField: View {
     var title: String
     var pts: UInt32
+    var field: DiagnosticTimeField
     var onCommit: (UInt32) -> Void
     @State private var draft = ""
     @FocusState private var focused: Bool
@@ -1229,6 +1300,7 @@ private struct CueTimeField: View {
             if !focused { draft = SRTWriter.timestamp(pts: newValue) }
         }
         .onChange(of: focused) { isFocused in
+            IssueDiagnosticLog.noteTimeField(field, focused: isFocused)
             guard !isFocused else { return }
             guard let next = Self.parsed(draft) else {
                 draft = SRTWriter.timestamp(pts: pts)
@@ -1287,6 +1359,7 @@ private struct CueDurationField: View {
             if !focused { draft = Self.label(newValue) }
         }
         .onChange(of: focused) { isFocused in
+            IssueDiagnosticLog.noteTimeField(.duration, focused: isFocused)
             guard !isFocused else { return }
             guard let next = Self.parse(draft) else {
                 draft = Self.label(duration)
@@ -1444,6 +1517,15 @@ private struct ReviewWindowInstaller: NSViewRepresentable {
         view.onClose = onClose
         view.onAttemptClose = onAttemptClose
         view.documentEdited = isDocumentEdited
+        if IssueDiagnosticLog.enabled {
+            IssueDiagnosticLog.recordDocumentEdited(
+                site: "update",
+                windowExisted: view.window != nil,
+                previous: view.window?.isDocumentEdited,
+                requested: isDocumentEdited,
+                willWrite: view.window != nil
+            )
+        }
         view.window?.isDocumentEdited = isDocumentEdited
         view.install()
     }
@@ -1469,6 +1551,15 @@ private final class ReviewWindowAnchor: NSView {
         guard let window else { return }
         // Only touch the edited dot when it changes. Setting it from layout()
         // re-enters layout while the window is minimizing.
+        if IssueDiagnosticLog.enabled {
+            IssueDiagnosticLog.recordDocumentEdited(
+                site: "install",
+                windowExisted: true,
+                previous: window.isDocumentEdited,
+                requested: documentEdited,
+                willWrite: window.isDocumentEdited != documentEdited
+            )
+        }
         if window.isDocumentEdited != documentEdited {
             window.isDocumentEdited = documentEdited
         }

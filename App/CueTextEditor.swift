@@ -99,12 +99,14 @@ struct CueTextEditor: NSViewRepresentable {
         }
 
         func textDidBeginEditing(_ notification: Notification) {
+            IssueDiagnosticLog.noteTextEditing(true)
             parent.onFocus(true)
         }
 
         func textDidEndEditing(_ notification: Notification) {
             parent.onFocus(false)
             parent.onEndCoalescing()
+            IssueDiagnosticLog.noteTextEditing(false)
         }
     }
 }

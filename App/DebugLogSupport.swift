@@ -15,6 +15,7 @@ enum AppLog {
     static let ocr = Logger(subsystem: subsystem, category: "ocr")
     static let mkv = Logger(subsystem: subsystem, category: "mkv")
     static let error = Logger(subsystem: subsystem, category: "error")
+    static let diagnostic = Logger(subsystem: subsystem, category: "diagnostic")
 
     static func write(_ line: DebugLogLine) {
         let message = line.message
@@ -38,6 +39,7 @@ enum AppLog {
         case .ocr: return ocr
         case .mkv: return mkv
         case .error: return error
+        case .diagnostic: return diagnostic
         }
     }
 }

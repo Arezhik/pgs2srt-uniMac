@@ -8,6 +8,8 @@ public enum DebugLogCategory: String, Sendable, CaseIterable {
     case ocr
     case mkv
     case error
+    /// Opt-in menu and review traces. Absent unless diagnostics are enabled.
+    case diagnostic
 }
 
 /// One redacted line, before it is written to disk.

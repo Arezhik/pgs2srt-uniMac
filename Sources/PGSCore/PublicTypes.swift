@@ -2,7 +2,7 @@ import Foundation
 
 /// Version of the cross-platform subtitle core.
 public enum PGSCoreInfo {
-    public static let version = "0.1.1"
+    public static let version = "0.1.2"
 }
 
 /// Straight (non-premultiplied) 8-bit color.
