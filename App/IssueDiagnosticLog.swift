@@ -3,9 +3,11 @@ import Foundation
 import PGSCore
 
 /// Opt-in trace for #35 and #30. Off unless `PGS2SRT_DIAGNOSTICS` or the
-/// `PGS2SRTDiagnostics` default is on. `PGS2SRT_STABLE_COMMANDS` (or
-/// `PGS2SRTStableCommands`) is a separate comparison: focused queue actions
-/// update only when Review's availability changes. Neither flag is a fix.
+/// `PGS2SRTDiagnostics` default is on.
+///
+/// Focused queue actions update only when Review, Cancel All, or Clear Finished
+/// availability changes. `PGS2SRT_STABLE_COMMANDS` set to `0`, `no`, `false`, or `off`
+/// restores the old per-cue rebuilds. Unset or `1` keeps the default.
 ///
 /// Set `PGS2SRT_DIAGNOSTICS=0` to force the trace off. Lines go to the debug
 /// log under the `diagnostic` category and do not include subtitle text.
@@ -14,9 +16,8 @@ enum IssueDiagnosticLog {
         environmentValue: ProcessInfo.processInfo.environment["PGS2SRT_DIAGNOSTICS"],
         defaultsFlag: UserDefaults.standard.bool(forKey: "PGS2SRTDiagnostics")
     )
-    static let stableCommands = DiagnosticSwitch.isOn(
-        environmentValue: ProcessInfo.processInfo.environment["PGS2SRT_STABLE_COMMANDS"],
-        defaultsFlag: UserDefaults.standard.bool(forKey: "PGS2SRTStableCommands")
+    static let stableCommands = DiagnosticSwitch.stableCommandsEnabled(
+        environmentValue: ProcessInfo.processInfo.environment["PGS2SRT_STABLE_COMMANDS"]
     )
 
     private static let stateLock = NSLock()
@@ -35,14 +36,14 @@ enum IssueDiagnosticLog {
         }
         started = true
         stateLock.unlock()
-        guard enabled || stableCommands else { return }
+        // Stable commands are the default, so they must not turn the trace on.
+        guard enabled else { return }
         write(DiagnosticFormatting.startup(
             version: version,
             build: build,
             tracing: enabled,
             stableCommands: stableCommands
         ))
-        guard enabled else { return }
         installMenuObservers()
     }
 
@@ -83,12 +84,14 @@ enum IssueDiagnosticLog {
         ))
     }
 
-    static func recordQueueFocus(candidate: Bool, canReview: Bool) {
+    static func recordQueueFocus(candidate: Bool, inputs: QueueActionInputs) {
         guard enabled else { return }
         write(DiagnosticFormatting.queueFocus(
             candidate: candidate,
             stable: stableCommands,
-            canReview: canReview,
+            canReview: inputs.canReview,
+            canCancel: inputs.canCancel,
+            canClear: inputs.canClear,
             menu: menu
         ))
     }

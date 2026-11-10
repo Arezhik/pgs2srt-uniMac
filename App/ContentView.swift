@@ -9,23 +9,27 @@ struct ContentView: View {
     @State private var targeted = false
 
     var body: some View {
-        let canReview = canReviewSelected
+        let inputs = QueueActionInputs(
+            canReview: canReviewSelected,
+            canCancel: model.hasCancellableWork,
+            canClear: model.canClearFinished
+        )
         if IssueDiagnosticLog.stableCommands {
-            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: true, canReview: canReview)
+            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: true, inputs: inputs)
             queueChrome.background {
                 QueueCommandFocus(
-                    canReview: canReview,
+                    inputs: inputs,
                     review: { reviewSelected(newWindow: false) },
                     reviewNewWindow: { reviewSelected(newWindow: true) }
                 )
                 .equatable()
             }
         } else {
-            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, canReview: canReview)
+            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, inputs: inputs)
             queueChrome.focusedSceneValue(\.queueActions, QueueActions(
                 review: { reviewSelected(newWindow: false) },
                 reviewNewWindow: { reviewSelected(newWindow: true) },
-                canReview: canReview
+                canReview: inputs.canReview
             ))
         }
     }
@@ -281,26 +285,27 @@ private struct SettingsToolbarButtonMacOS14: View {
     }
 }
 
-/// Comparison path for #35. SwiftUI skips this body while `canReview` is unchanged.
-/// The shipping path does not use it. Review, Cancel All, and Clear Finished stay as they are.
+/// SwiftUI skips this body while Review, Cancel All, and Clear Finished
+/// availability are unchanged. Cue ticks do not rebuild the focused actions.
+/// `PGS2SRT_STABLE_COMMANDS=0` keeps the direct focused value instead.
 private struct QueueCommandFocus: View, Equatable {
-    var canReview: Bool
+    var inputs: QueueActionInputs
     var review: () -> Void
     var reviewNewWindow: () -> Void
 
     static func == (lhs: QueueCommandFocus, rhs: QueueCommandFocus) -> Bool {
-        lhs.canReview == rhs.canReview
+        !StableCommandFocus.shouldApply(previous: lhs.inputs, next: rhs.inputs)
     }
 
     var body: some View {
-        let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, canReview: canReview)
+        let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, inputs: inputs)
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
             .focusedSceneValue(\.queueActions, QueueActions(
                 review: review,
                 reviewNewWindow: reviewNewWindow,
-                canReview: canReview
+                canReview: inputs.canReview
             ))
     }
 }

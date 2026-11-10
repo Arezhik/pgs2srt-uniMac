@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D4E8A1C0B7F64E2A91C35B01 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D4E8A1C0B7F64E2A91C35B02 /* Assets.xcassets */; };
 		1136A5B9ED48E1AA6B35D18A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_074EAA3F-27E7-4861-B381-D55ED9CFDC25" /* SettingsView.swift */; };
 		2036E0238D740C6196E6B07F /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = "TEMP_337BF162-D681-4AA6-927C-B650111AF8BB" /* AppModel.swift */; };
 		2CC09C1C7A9CCD380B0CD334 /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = BB2561138E57D040F3EA914C /* PGSCore */; };
@@ -53,6 +54,7 @@
 		"TEMP_C83E21BF-344A-4307-A6EC-C7CC158FDB05" /* ReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWindow.swift; sourceTree = "<group>"; };
 		"TEMP_D0624F73-86D8-44C0-8D0E-16CF4F23B6C8" /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
 		"TEMP_03F28886-14CD-4CE1-91EB-5655A03414EB" /* IssueDiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueDiagnosticLog.swift; sourceTree = "<group>"; };
+		D4E8A1C0B7F64E2A91C35B02 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -159,6 +161,7 @@
 		"TEMP_6C313594-6C48-4CDA-B322-B7A7E718F340" /* . */ = {
 			isa = PBXGroup;
 			children = (
+				D4E8A1C0B7F64E2A91C35B02 /* Assets.xcassets */,
 				"TEMP_D0624F73-86D8-44C0-8D0E-16CF4F23B6C8" /* DebugLogSupport.swift */,
 				"TEMP_03F28886-14CD-4CE1-91EB-5655A03414EB" /* IssueDiagnosticLog.swift */,
 				"TEMP_8B397C55-EC3B-4F6E-85CF-7BC1DF82C606" /* PGS2SRT-Bridging-Header.h */,
@@ -203,6 +206,7 @@
 			buildPhases = (
 				2234F6C56671D01A2BDD41AF /* Sources */,
 				8CA726338C98E39D07A48FAB /* Frameworks */,
+				D4E8A1C0B7F64E2A91C35B03 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -280,6 +284,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		D4E8A1C0B7F64E2A91C35B03 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D4E8A1C0B7F64E2A91C35B01 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		2234F6C56671D01A2BDD41AF /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -337,7 +352,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -353,7 +368,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.2;
+				MARKETING_VERSION = 0.2.0;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.PGS2SRT;
 				PRODUCT_NAME = PGS2SRT;
@@ -475,7 +490,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -491,7 +506,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.2;
+				MARKETING_VERSION = 0.2.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.PGS2SRT;
 				PRODUCT_NAME = PGS2SRT;
@@ -566,7 +581,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -574,7 +589,7 @@
 					"@executable_path",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.2;
+				MARKETING_VERSION = 0.2.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.pgs2srt;
 				PRODUCT_NAME = pgs2srt;
@@ -596,7 +611,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -604,7 +619,7 @@
 					"@executable_path",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.2;
+				MARKETING_VERSION = 0.2.0;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.pgs2srt;
 				PRODUCT_NAME = pgs2srt;

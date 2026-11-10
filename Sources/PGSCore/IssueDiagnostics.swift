@@ -23,6 +23,19 @@ public enum DiagnosticSwitch {
         return defaultsFlag
     }
 
+    /// Stable queue actions are the default. `0`, `no`, `false`, and `off` restore
+    /// the old per-cue rebuilds. An absent, blank, `1`, or any other word stays on,
+    /// so a typo does not turn the fix off.
+    public static func stableCommandsEnabled(environmentValue: String?) -> Bool {
+        guard let token = normalized(environmentValue) else { return true }
+        switch token {
+        case "0", "no", "false", "off":
+            return false
+        default:
+            return true
+        }
+    }
+
     private static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let token = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -30,11 +43,24 @@ public enum DiagnosticSwitch {
     }
 }
 
-/// Whether the comparison build should replace the focused queue actions.
-/// The shipping path does not call this. Equal availability keeps the previous value.
+/// Review, Cancel All, and Clear Finished availability. Cue progress is not an input.
+public struct QueueActionInputs: Equatable, Sendable {
+    public var canReview: Bool
+    public var canCancel: Bool
+    public var canClear: Bool
+
+    public init(canReview: Bool, canCancel: Bool, canClear: Bool) {
+        self.canReview = canReview
+        self.canCancel = canCancel
+        self.canClear = canClear
+    }
+}
+
+/// Whether the focused queue actions should be replaced.
+/// Equal availability keeps the previous value.
 public enum StableCommandFocus {
-    public static func shouldApply(previousCanReview: Bool?, canReview: Bool) -> Bool {
-        previousCanReview != canReview
+    public static func shouldApply(previous: QueueActionInputs?, next: QueueActionInputs) -> Bool {
+        previous != next
     }
 }
 
@@ -261,10 +287,18 @@ public enum DiagnosticFormatting {
         return coalesced(group: "commands-eval", signature: signature, message: message)
     }
 
-    public static func queueFocus(candidate: Bool, stable: Bool, canReview: Bool, menu: String) -> DiagnosticEvent {
+    public static func queueFocus(
+        candidate: Bool,
+        stable: Bool,
+        canReview: Bool,
+        canCancel: Bool,
+        canClear: Bool,
+        menu: String
+    ) -> DiagnosticEvent {
         let kind = candidate ? "candidate" : "apply"
-        let message = "queue-focus \(kind) stable=\(flag(stable)) canReview=\(flag(canReview)) menu=\(menu)"
-        return coalesced(group: "queue-focus", signature: "\(kind)|\(stable)|\(canReview)|\(menu)", message: message)
+        let message = "queue-focus \(kind) stable=\(flag(stable)) canReview=\(flag(canReview)) cancel=\(flag(canCancel)) clear=\(flag(canClear)) menu=\(menu)"
+        let signature = "\(kind)|\(stable)|\(canReview)|\(canCancel)|\(canClear)|\(menu)"
+        return coalesced(group: "queue-focus", signature: signature, message: message)
     }
 
     public static func reviewFocus(_ snapshot: ReviewCommandFocusSnapshot, menu: String) -> DiagnosticEvent {
@@ -351,7 +385,7 @@ public enum DiagnosticFormatting {
     }
 
     /// `willWrite` records what this call site is about to do. The update site
-    /// always assigns. The install site assigns only when the value differs.
+    /// and the install site assign only when the value differs.
     public static func documentEdited(
         site: String,
         windowExisted: Bool,

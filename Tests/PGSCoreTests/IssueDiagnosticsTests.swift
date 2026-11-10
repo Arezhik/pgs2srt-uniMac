@@ -17,11 +17,30 @@ final class IssueDiagnosticsTests: XCTestCase {
         }
     }
 
-    func testStableFocusAppliesOnlyWhenReviewAvailabilityChanges() {
-        XCTAssertTrue(StableCommandFocus.shouldApply(previousCanReview: nil, canReview: false))
-        XCTAssertFalse(StableCommandFocus.shouldApply(previousCanReview: false, canReview: false))
-        XCTAssertTrue(StableCommandFocus.shouldApply(previousCanReview: false, canReview: true))
-        XCTAssertFalse(StableCommandFocus.shouldApply(previousCanReview: true, canReview: true))
+    func testStableCommandsStayOnUnlessTheOffSwitchIsSet() {
+        XCTAssertTrue(DiagnosticSwitch.stableCommandsEnabled(environmentValue: nil))
+        XCTAssertTrue(DiagnosticSwitch.stableCommandsEnabled(environmentValue: ""))
+        XCTAssertTrue(DiagnosticSwitch.stableCommandsEnabled(environmentValue: "  "))
+        XCTAssertTrue(DiagnosticSwitch.stableCommandsEnabled(environmentValue: "maybe"))
+        for value in ["1", "YES", "true", " on "] {
+            XCTAssertTrue(DiagnosticSwitch.stableCommandsEnabled(environmentValue: value))
+        }
+        for value in ["0", "no", "FALSE", "off"] {
+            XCTAssertFalse(DiagnosticSwitch.stableCommandsEnabled(environmentValue: value))
+        }
+    }
+
+    func testStableFocusAppliesWhenReviewCancelOrClearChanges() {
+        let idle = QueueActionInputs(canReview: false, canCancel: false, canClear: false)
+        XCTAssertTrue(StableCommandFocus.shouldApply(previous: nil, next: idle))
+        XCTAssertFalse(StableCommandFocus.shouldApply(previous: idle, next: idle))
+        let reviewing = QueueActionInputs(canReview: true, canCancel: false, canClear: false)
+        let cancelling = QueueActionInputs(canReview: false, canCancel: true, canClear: false)
+        let clearable = QueueActionInputs(canReview: false, canCancel: false, canClear: true)
+        XCTAssertTrue(StableCommandFocus.shouldApply(previous: idle, next: reviewing))
+        XCTAssertTrue(StableCommandFocus.shouldApply(previous: idle, next: cancelling))
+        XCTAssertTrue(StableCommandFocus.shouldApply(previous: idle, next: clearable))
+        XCTAssertFalse(StableCommandFocus.shouldApply(previous: cancelling, next: cancelling))
     }
 
     func testProgressTicksDoNotChangeCommandAvailability() {
@@ -38,6 +57,17 @@ final class IssueDiagnosticsTests: XCTestCase {
         XCTAssertFalse(early.canClearFinished)
         XCTAssertEqual(early.progress.label, "1/400")
         XCTAssertEqual(later.progress.label, "40/400")
+        let earlyInputs = QueueActionInputs(
+            canReview: false,
+            canCancel: early.hasCancellableWork,
+            canClear: early.canClearFinished
+        )
+        let laterInputs = QueueActionInputs(
+            canReview: false,
+            canCancel: later.hasCancellableWork,
+            canClear: later.canClearFinished
+        )
+        XCTAssertFalse(StableCommandFocus.shouldApply(previous: earlyInputs, next: laterInputs))
 
         let done = QueueCommandSnapshot.observe(
             items: [item(.done(cueCount: 3, unrecognizedCount: 1, outputPath: "/secret/Hello subtitle.srt"))],
@@ -201,18 +231,25 @@ final class IssueDiagnosticsTests: XCTestCase {
         )
     }
 
-    func testDocumentEditedLineRecordsTheUnconditionalUpdateSeparatelyFromInstall() {
-        let update = DiagnosticFormatting.documentEdited(
+    func testDocumentEditedLineRecordsAConditionalWrite() {
+        let unchanged = DiagnosticFormatting.documentEdited(
             site: "update",
             windowExisted: true,
             previous: true,
             requested: true,
-            willWrite: true
+            willWrite: false
         )
-        XCTAssertTrue(update.coalesce)
+        XCTAssertTrue(unchanged.coalesce)
         XCTAssertEqual(
-            update.message,
-            "document-edited site=update window=true previous=true requested=true willWrite=true"
+            unchanged.message,
+            "document-edited site=update window=true previous=true requested=true willWrite=false"
+        )
+        let update = DiagnosticFormatting.documentEdited(
+            site: "update",
+            windowExisted: true,
+            previous: false,
+            requested: true,
+            willWrite: true
         )
         let install = DiagnosticFormatting.documentEdited(
             site: "install",
@@ -254,6 +291,31 @@ final class IssueDiagnosticsTests: XCTestCase {
         XCTAssertEqual(line.signature, same.signature)
         let otherMenu = DiagnosticFormatting.reviewFocus(snapshot, menu: "file")
         XCTAssertNotEqual(line.signature, otherMenu.signature)
+    }
+
+    func testQueueFocusLineIncludesCancelAndClear() {
+        let applied = DiagnosticFormatting.queueFocus(
+            candidate: false,
+            stable: true,
+            canReview: true,
+            canCancel: false,
+            canClear: true,
+            menu: "file"
+        )
+        XCTAssertEqual(
+            applied.message,
+            "queue-focus apply stable=true canReview=true cancel=false clear=true menu=file"
+        )
+        let candidate = DiagnosticFormatting.queueFocus(
+            candidate: true,
+            stable: true,
+            canReview: true,
+            canCancel: false,
+            canClear: true,
+            menu: "file"
+        )
+        XCTAssertNotEqual(applied.signature, candidate.signature)
+        XCTAssertTrue(candidate.message.contains("queue-focus candidate"))
     }
 
     func testStartupLineStatesBothFlags() {

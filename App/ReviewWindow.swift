@@ -1517,16 +1517,21 @@ private struct ReviewWindowInstaller: NSViewRepresentable {
         view.onClose = onClose
         view.onAttemptClose = onAttemptClose
         view.documentEdited = isDocumentEdited
+        let window = view.window
+        let willWrite = window.map { $0.isDocumentEdited != isDocumentEdited } ?? false
         if IssueDiagnosticLog.enabled {
             IssueDiagnosticLog.recordDocumentEdited(
                 site: "update",
-                windowExisted: view.window != nil,
-                previous: view.window?.isDocumentEdited,
+                windowExisted: window != nil,
+                previous: window?.isDocumentEdited,
                 requested: isDocumentEdited,
-                willWrite: view.window != nil
+                willWrite: willWrite
             )
         }
-        view.window?.isDocumentEdited = isDocumentEdited
+        // Same rule as install(): leave the edited dot alone when it already matches.
+        if willWrite, let window {
+            window.isDocumentEdited = isDocumentEdited
+        }
         view.install()
     }
 }
