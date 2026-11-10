@@ -9,6 +9,32 @@ struct ContentView: View {
     @State private var targeted = false
 
     var body: some View {
+        let inputs = QueueActionInputs(
+            canReview: canReviewSelected,
+            canCancel: model.hasCancellableWork,
+            canClear: model.canClearFinished
+        )
+        if IssueDiagnosticLog.stableCommands {
+            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: true, inputs: inputs)
+            queueChrome.background {
+                QueueCommandFocus(
+                    inputs: inputs,
+                    review: { reviewSelected(newWindow: false) },
+                    reviewNewWindow: { reviewSelected(newWindow: true) }
+                )
+                .equatable()
+            }
+        } else {
+            let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, inputs: inputs)
+            queueChrome.focusedSceneValue(\.queueActions, QueueActions(
+                review: { reviewSelected(newWindow: false) },
+                reviewNewWindow: { reviewSelected(newWindow: true) },
+                canReview: inputs.canReview
+            ))
+        }
+    }
+
+    private var queueChrome: some View {
         VStack(spacing: 0) {
             header
             if !model.banners.isEmpty {
@@ -51,11 +77,6 @@ struct ContentView: View {
             openWindow(id: "review", value: request)
             model.reviewOpenRequest = nil
         }
-        .focusedSceneValue(\.queueActions, QueueActions(
-            review: { reviewSelected(newWindow: false) },
-            reviewNewWindow: { reviewSelected(newWindow: true) },
-            canReview: canReviewSelected
-        ))
     }
 
     private var canReviewSelected: Bool {
@@ -264,6 +285,31 @@ private struct SettingsToolbarButtonMacOS14: View {
     }
 }
 
+/// SwiftUI skips this body while Review, Cancel All, and Clear Finished
+/// availability are unchanged. Cue ticks do not rebuild the focused actions.
+/// `PGS2SRT_STABLE_COMMANDS=0` keeps the direct focused value instead.
+private struct QueueCommandFocus: View, Equatable {
+    var inputs: QueueActionInputs
+    var review: () -> Void
+    var reviewNewWindow: () -> Void
+
+    static func == (lhs: QueueCommandFocus, rhs: QueueCommandFocus) -> Bool {
+        !StableCommandFocus.shouldApply(previous: lhs.inputs, next: rhs.inputs)
+    }
+
+    var body: some View {
+        let _ = IssueDiagnosticLog.recordQueueFocus(candidate: false, inputs: inputs)
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .focusedSceneValue(\.queueActions, QueueActions(
+                review: review,
+                reviewNewWindow: reviewNewWindow,
+                canReview: inputs.canReview
+            ))
+    }
+}
+
 /// Tags the queue window so a Dock or Open With drop can tell it from Settings.
 private struct QueueWindowMarker: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
@@ -282,7 +328,14 @@ private final class QueueWindowClaim: NSView {
     }
 
     func claim() {
-        window?.identifier = QueueWindow.marker
+        let host = window
+        if IssueDiagnosticLog.enabled {
+            let changed = host.map { $0.identifier != QueueWindow.marker } ?? false
+            host?.identifier = QueueWindow.marker
+            IssueDiagnosticLog.recordWindowMarker(hadWindow: host != nil, identifierChanged: changed)
+        } else {
+            host?.identifier = QueueWindow.marker
+        }
     }
 }
 

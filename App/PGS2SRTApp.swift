@@ -38,6 +38,7 @@ struct AppCommands: Commands {
     @FocusedValue(\.queueActions) private var queue
 
     var body: some Commands {
+        let _ = traceCommands()
         CommandGroup(replacing: .saveItem) {
             Button("Save") { review?.save() }
                 .keyboardShortcut("s")
@@ -142,6 +143,18 @@ struct AppCommands: Commands {
                 model.exportDebugLog()
             }
         }
+    }
+
+    /// Reads command inputs only while tracing is on, so a cue tick does not do this work twice.
+    private func traceCommands() {
+        guard IssueDiagnosticLog.enabled else { return }
+        IssueDiagnosticLog.recordCommands(
+            hasCancellableWork: model.hasCancellableWork,
+            canClearFinished: model.canClearFinished,
+            hasReviewsNeedingSave: model.hasReviewsNeedingSave,
+            reviewFocused: review != nil,
+            queueCanReview: queue?.canReview == true
+        )
     }
 }
 

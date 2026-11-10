@@ -42,6 +42,7 @@ final class AppModel: ObservableObject {
             await TrackPrompt.ask(fileName: name, tracks: tracks, suggestedTrackID: suggested)
         }
         logLaunch()
+        IssueDiagnosticLog.start(version: AppVersion.marketing, build: AppVersion.build)
         AppModel.shared = self
         let pending = AppDelegate.setDeliver { urls in
             let urls = urls
@@ -67,6 +68,7 @@ final class AppModel: ObservableObject {
                 .appendingPathComponent("Desktop", isDirectory: true)
                 .appendingPathComponent(name)
             DebugLog.shared.record(.lifecycle, "Exporting debug log to \(destination.path)")
+            IssueDiagnosticLog.flush()
             let text = DebugLogDocument.document(
                 environment: environment,
                 logText: DebugLog.shared.recentText(),
@@ -248,6 +250,9 @@ final class AppModel: ObservableObject {
         if let selectedItemID, !ids.contains(selectedItemID) {
             self.selectedItemID = nil
         }
+        if IssueDiagnosticLog.enabled {
+            IssueDiagnosticLog.recordModelRefresh(items: items, hasReviewsNeedingSave: hasReviewsNeedingSave)
+        }
     }
 
     func reviewFile(for id: UUID) -> ReviewFileModel? {
@@ -366,6 +371,9 @@ final class AppModel: ObservableObject {
     private func writeReview(_ file: ReviewFileModel, to path: String, host: NSWindow?) async -> Bool {
         let name = ReviewFormat.title(for: items.first { $0.id == file.itemID }?.name ?? "Subtitles")
         DebugLog.shared.record(.lifecycle, "Review save started \(name)")
+        if IssueDiagnosticLog.enabled {
+            IssueDiagnosticLog.recordSave(phase: "begin", result: nil, dirty: file.document.hasUnsavedEdits)
+        }
         let plan = ReviewWritePlanner.plan(
             path: path,
             plannedPath: file.plannedPath,
@@ -380,6 +388,7 @@ final class AppModel: ObservableObject {
                 }
             case .skip, .cancel:
                 DebugLog.shared.record(.lifecycle, "Review save cancelled \(name)")
+                IssueDiagnosticLog.recordSave(phase: "end", result: "cancelled", dirty: nil)
                 return false
             }
         }
@@ -387,10 +396,14 @@ final class AppModel: ObservableObject {
             try await queue.saveReview(id: file.itemID, to: path)
             file.noteExternalChange()
             DebugLog.shared.record(.lifecycle, "Review save finished \(name)")
+            if IssueDiagnosticLog.enabled {
+                IssueDiagnosticLog.recordSave(phase: "end", result: "finished", dirty: file.document.hasUnsavedEdits)
+            }
             return true
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? "The .srt file could not be written."
             DebugLog.shared.record(.error, "Review save failed \(name): \(message)", isError: true)
+            IssueDiagnosticLog.recordSave(phase: "end", result: "failed", dirty: nil)
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = "Could not save the subtitle"
