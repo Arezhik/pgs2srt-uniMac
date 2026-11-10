@@ -648,6 +648,7 @@ private struct ReviewEditor: View {
                     Button("Next File") { goToNextFile() }
                         .disabled(model.nextReviewFile(after: file.itemID) == nil)
                 }
+                .padding(8)
             }
             Button {
                 Task { await model.saveReview(itemID: file.itemID, host: NSApp.keyWindow) }
@@ -681,6 +682,7 @@ private struct ReviewEditor: View {
             .accessibilityLabel("Scope")
             .padding(.horizontal, 10)
             .padding(.top, 8)
+            .padding(.bottom, 8)
 
             let marks = groupMarks()
             ScrollViewReader { proxy in
@@ -698,6 +700,7 @@ private struct ReviewEditor: View {
                     .id(cue.id)
                 }
                 .listStyle(.inset)
+                .padding(.top, 6)
                 .onChange(of: file.orderedSelection.first?.id) { id in
                     guard let id else { return }
                     proxy.scrollTo(id, anchor: .center)
@@ -851,32 +854,33 @@ private struct CueListRow: View {
             if showPicture {
                 picture
             }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    flag
-                    Text("\(number)")
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 28, alignment: .trailing)
-                    Text(cue.listPrimaryText)
-                        .lineLimit(2)
-                        .font(cue.showsOCRFailure ? Font.body.italic() : Font.body)
-                        .foregroundStyle(textColor)
-                    if let groupIDs {
-                        Button {
-                            onSelectGroup(groupIDs)
-                        } label: {
-                            Text("Word-by-word · \(groupIDs.count)")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Word-by-word group of \(groupIDs.count)")
-                    }
-                }
-                Text("\(SRTWriter.timestamp(pts: cue.startPTS)) → \(SRTWriter.timestamp(pts: cue.endPTS))")
-                    .font(.caption.monospacedDigit())
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                flag
+                Text("\(number)")
+                    .font(.body.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 22)
+                    .frame(width: 32, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(cue.listPrimaryText)
+                            .lineLimit(2)
+                            .font(cue.showsOCRFailure ? Font.body.italic() : Font.body)
+                            .foregroundStyle(textColor)
+                        if let groupIDs {
+                            Button {
+                                onSelectGroup(groupIDs)
+                            } label: {
+                                Text("Word-by-word · \(groupIDs.count)")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Word-by-word group of \(groupIDs.count)")
+                        }
+                    }
+                    Text("\(SRTWriter.timestamp(pts: cue.startPTS)) → \(SRTWriter.timestamp(pts: cue.endPTS))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 2)

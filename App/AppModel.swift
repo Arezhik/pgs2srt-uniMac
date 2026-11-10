@@ -162,7 +162,15 @@ final class AppModel: ObservableObject {
             directoryExists: Self.directoryExists
         ) {
         case let .showFile(path):
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            let url = URL(fileURLWithPath: path)
+            if IssueDiagnosticLog.enabled {
+                DebugLog.shared.record(
+                    .diagnostic,
+                    "Reveal \(url.path) api=NSWorkspace.selectFile(_:inFileViewerRootedAtPath:)"
+                )
+            }
+            // An empty root selects the file in the main viewer. A parent folder opens a new one.
+            _ = NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
         case let .alert(alert):
             let source = item.sourcePath
             Task { @MainActor in
