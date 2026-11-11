@@ -648,6 +648,7 @@ private struct ReviewEditor: View {
                     Button("Next File") { goToNextFile() }
                         .disabled(model.nextReviewFile(after: file.itemID) == nil)
                 }
+                .padding(.horizontal, 8)
             }
             Button {
                 Task { await model.saveReview(itemID: file.itemID, host: NSApp.keyWindow) }
@@ -681,6 +682,7 @@ private struct ReviewEditor: View {
             .accessibilityLabel("Scope")
             .padding(.horizontal, 10)
             .padding(.top, 8)
+            .padding(.bottom, 8)
 
             let marks = groupMarks()
             ScrollViewReader { proxy in
@@ -692,12 +694,14 @@ private struct ReviewEditor: View {
                         groupIDs: marks.leadIDs[cue.id],
                         showPicture: file.showPicturesInList,
                         directory: file.pictureDirectory,
+                        isSelected: selection.contains(cue.id),
                         onSelectGroup: { file.selectGroup($0) }
                     )
                     .tag(cue.id)
                     .id(cue.id)
                 }
                 .listStyle(.inset)
+                .padding(.top, 6)
                 .onChange(of: file.orderedSelection.first?.id) { id in
                     guard let id else { return }
                     proxy.scrollTo(id, anchor: .center)
@@ -842,71 +846,112 @@ private struct CueListRow: View {
     var groupIDs: [UUID]?
     var showPicture: Bool
     var directory: String?
+    /// From the list selection. `backgroundProminence` needs macOS 14.
+    var isSelected: Bool
     var onSelectGroup: ([UUID]) -> Void
     @State private var thumb: NSImage?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 0) {
             bracket
             if showPicture {
                 picture
+                    .padding(.leading, 8)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    flag
-                    Text("\(number)")
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 28, alignment: .trailing)
-                    Text(cue.listPrimaryText)
-                        .lineLimit(2)
-                        .font(cue.showsOCRFailure ? Font.body.italic() : Font.body)
-                        .foregroundStyle(textColor)
-                    if let groupIDs {
-                        Button {
-                            onSelectGroup(groupIDs)
-                        } label: {
-                            Text("Word-by-word · \(groupIDs.count)")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityLabel("Word-by-word group of \(groupIDs.count)")
-                    }
-                }
-                Text("\(SRTWriter.timestamp(pts: cue.startPTS)) → \(SRTWriter.timestamp(pts: cue.endPTS))")
-                    .font(.caption.monospacedDigit())
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text("\(number)")
+                    .font(.body.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 22)
+                    .frame(width: 32, alignment: .trailing)
+                    .padding(.leading, 6)
+                    .accessibilityLabel("Cue \(number)")
+                    .accessibilitySortPriority(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(cue.listPrimaryText)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .font(cue.showsOCRFailure ? Font.body.italic() : Font.body)
+                            .foregroundStyle(textColor)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let groupIDs {
+                            Button {
+                                onSelectGroup(groupIDs)
+                            } label: {
+                                Text("Word-by-word · \(groupIDs.count)")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.borderless)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityLabel("Word-by-word group of \(groupIDs.count)")
+                        }
+                    }
+                    Text("\(SRTWriter.timestamp(pts: cue.startPTS)) → \(SRTWriter.timestamp(pts: cue.endPTS))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .padding(.leading, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                flag
             }
         }
+        .padding(.trailing, 8)
         .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: showPicture ? cue.pictureID : nil) {
             await loadThumb()
         }
     }
 
+    private var selectionTextColor: Color {
+        Color(nsColor: .alternateSelectedControlTextColor)
+    }
+
     private var textColor: Color {
-        if cue.showsOCRFailure { return .red }
+        if cue.showsOCRFailure {
+            return isSelected ? selectionTextColor : .red
+        }
         if cue.showsLowConfidence { return .orange }
         return .primary
     }
 
-    @ViewBuilder
     private var flag: some View {
+        flagSymbol
+            .frame(width: 14, height: 14, alignment: .center)
+            .alignmentGuide(.firstTextBaseline) { dimensions in
+                dimensions[VerticalAlignment.center]
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(flagAccessibilityLabel ?? "")
+            .accessibilitySortPriority(1)
+            .accessibilityHidden(flagAccessibilityLabel == nil)
+    }
+
+    private var flagAccessibilityLabel: String? {
+        if cue.showsOCRFailure { return "OCR failed" }
+        if cue.showsLowConfidence { return "Low confidence" }
+        if cue.isEdited { return "Edited" }
+        return nil
+    }
+
+    @ViewBuilder
+    private var flagSymbol: some View {
         if cue.showsOCRFailure {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
-                .accessibilityLabel("OCR failed")
+                .font(.body)
+                .foregroundStyle(isSelected ? selectionTextColor : .red)
         } else if cue.showsLowConfidence {
             Image(systemName: "questionmark.circle.fill")
+                .font(.body)
                 .foregroundStyle(.orange)
-                .accessibilityLabel("Low confidence")
         } else if cue.isEdited {
             Image(systemName: "pencil.circle.fill")
+                .font(.body)
                 .foregroundStyle(.blue)
-                .accessibilityLabel("Edited")
         } else {
-            Color.clear.frame(width: 14, height: 14)
+            Color.clear
         }
     }
 
@@ -915,6 +960,7 @@ private struct CueListRow: View {
             .fill(edge == nil ? Color.clear : Color.secondary.opacity(0.55))
             .frame(width: 3)
             .padding(.vertical, edge == .first ? 4 : (edge == .last ? 4 : 0))
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
