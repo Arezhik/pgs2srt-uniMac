@@ -32,6 +32,7 @@ struct PGS2SRTApp: App {
                 .environmentObject(model)
                 .defaultAppStorage(UITestingLaunch.defaults)
         }
+        .windowResizability(.contentSize)
     }
 }
 
