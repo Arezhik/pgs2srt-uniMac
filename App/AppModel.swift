@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var preferences: ConversionPreferences
     @Published var selectedItemID: UUID?
     @Published private(set) var reviewRevision = 0
+    @Published var reviewOpenRequest: UUID?
     @Published private(set) var batchLine: BatchLine?
     private let dock = DockProgressController()
     @Published private(set) var reviewWindows: [ReviewWindowState] = []
