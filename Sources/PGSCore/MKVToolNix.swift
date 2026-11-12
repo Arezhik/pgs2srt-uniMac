@@ -133,10 +133,18 @@ public enum MKVCommand {
         return result.standardOutput
     }
 
-    /// `mkvextract <file> tracks <id>:<destination>`.
+    /// `mkvextract <file> tracks <id>:<destination>` for one track.
     public static func extract(tool: String, file: String, trackID: Int, destination: String) async throws {
-        let result = try await run(executable: tool, arguments: [file, "tracks", "\(trackID):\(destination)"])
-        guard result.status == 0, FileManager.default.fileExists(atPath: destination) else {
+        try await extract(tool: tool, file: file, tracks: [(trackID, destination)])
+    }
+
+    /// One `mkvextract` invocation for every selected track.
+    public static func extract(tool: String, file: String, tracks: [(Int, String)]) async throws {
+        var arguments = [file, "tracks"]
+        arguments.append(contentsOf: tracks.map { "\($0.0):\($0.1)" })
+        let result = try await run(executable: tool, arguments: arguments)
+        let wroteAll = tracks.allSatisfy { FileManager.default.fileExists(atPath: $0.1) }
+        guard result.status == 0, wroteAll else {
             throw MKVFailure.extractFailed
         }
     }
@@ -147,15 +155,23 @@ public struct MKVClient: Sendable {
     public var locate: @Sendable () -> MKVToolPaths?
     public var identify: @Sendable (String, String) async throws -> Data
     public var extract: @Sendable (String, String, Int, String) async throws -> Void
+    /// One call extracts every track. The default runs `extract` once per track.
+    public var extractMany: @Sendable (String, String, [(Int, String)]) async throws -> Void
 
     public init(
         locate: @escaping @Sendable () -> MKVToolPaths?,
         identify: @escaping @Sendable (String, String) async throws -> Data,
-        extract: @escaping @Sendable (String, String, Int, String) async throws -> Void
+        extract: @escaping @Sendable (String, String, Int, String) async throws -> Void,
+        extractMany: (@Sendable (String, String, [(Int, String)]) async throws -> Void)? = nil
     ) {
         self.locate = locate
         self.identify = identify
         self.extract = extract
+        self.extractMany = extractMany ?? { tool, file, pairs in
+            for pair in pairs {
+                try await extract(tool, file, pair.0, pair.1)
+            }
+        }
     }
 
     public static let live = MKVClient(
@@ -165,6 +181,9 @@ public struct MKVClient: Sendable {
         },
         extract: { tool, file, trackID, destination in
             try await MKVCommand.extract(tool: tool, file: file, trackID: trackID, destination: destination)
+        },
+        extractMany: { tool, file, tracks in
+            try await MKVCommand.extract(tool: tool, file: file, tracks: tracks)
         }
     )
 
@@ -173,6 +192,29 @@ public struct MKVClient: Sendable {
         locate: { nil },
         identify: { _, _ in throw MKVFailure.couldNotStartTool },
         extract: { _, _, _, _ in throw MKVFailure.couldNotStartTool }
+    )
+}
+
+/// Lists PGS tracks and extracts the selected ones. Tests substitute their own.
+public struct MKVNativeClient: Sendable {
+    public var listTracks: @Sendable (String) throws -> [PGSSubtitleTrack]
+    public var extract: @Sendable (String, Set<Int>, @escaping @Sendable (Int64, Int64) -> Void) throws -> [Int: Data]
+
+    public init(
+        listTracks: @escaping @Sendable (String) throws -> [PGSSubtitleTrack],
+        extract: @escaping @Sendable (String, Set<Int>, @escaping @Sendable (Int64, Int64) -> Void) throws -> [Int: Data]
+    ) {
+        self.listTracks = listTracks
+        self.extract = extract
+    }
+
+    public static let live = MKVNativeClient(
+        listTracks: { path in
+            try MKVReader.listTracks(at: path)
+        },
+        extract: { path, trackIDs, progress in
+            try MKVReader.extract(at: path, trackIDs: trackIDs, onProgress: progress)
+        }
     )
 }
 

@@ -271,7 +271,7 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(box.outcomes[1], BatchOutcome(done: 0, failed: 1, cancelled: 0, skipped: 0))
     }
 
-    func testMkvWithoutToolNixIsSkippedWithADownloadLink() async {
+    func testMkvWithoutToolNixReportsTheNativeError() async {
         let script = Script()
         let box = OutcomeBox()
         let queue = await makeQueue(script: script) { _ in sampleResult() }
@@ -283,9 +283,8 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertTrue(finished)
         let item = await queue.items[0]
         XCTAssertEqual(item.name, "Movie.mkv")
-        XCTAssertEqual(item.status, .skipped(MKVCopy.needsToolNix))
-        XCTAssertTrue(MKVCopy.needsToolNix.contains("https://mkvtoolnix.download"))
-        XCTAssertEqual(box.outcomes, [BatchOutcome(done: 0, failed: 0, cancelled: 0, skipped: 1)])
+        XCTAssertEqual(item.status, .failed("Could not read this MKV."))
+        XCTAssertEqual(box.outcomes, [BatchOutcome(done: 0, failed: 1, cancelled: 0, skipped: 0)])
         XCTAssertTrue(script.works.isEmpty)
     }
 
@@ -1188,6 +1187,117 @@ final class ConversionQueueTests: XCTestCase {
         XCTAssertEqual(outcome?.done, 2)
         XCTAssertEqual(mkv.extractedTracks, [4])
     }
+
+    func testSeveralTracksAreNamedAndCountedSeparately() async {
+        let english = PGSSubtitleTrack(id: 1, number: 2, language: "eng", languageIETF: "en", name: "English", forced: false, isDefault: true)
+        let forced = PGSSubtitleTrack(id: 2, number: 3, language: "eng", languageIETF: "en", name: "English", forced: true, isDefault: false)
+        let spanish = PGSSubtitleTrack(id: 3, number: 4, language: "spa", languageIETF: "es", name: "Spanish", forced: false, isDefault: false)
+        let box = NativeCallBox()
+        let native = MKVNativeClient(
+            listTracks: { _ in [english, forced, spanish] },
+            extract: { _, ids, _ in
+                box.note(ids)
+                return Dictionary(uniqueKeysWithValues: ids.map { ($0, Data("PGS".utf8)) })
+            }
+        )
+        var preferences = ConversionPreferences.default
+        preferences.chooseMKVTrack = true
+        let script = Script()
+        let queue = await makeQueue(preferences: preferences, script: script, native: native) { _ in
+            sampleResult(cues: 2, failures: 0)
+        }
+        let outcomeBox = OutcomeBox()
+        await MainActor.run {
+            queue.onBatchFinished = { outcomeBox.append($0) }
+        }
+        await queue.add(paths: ["/films/Movie.mkv"])
+        let choosing = await waitUntil(queue) { queue in
+            queue.items.first?.awaitsTrackChoice == true
+        }
+        XCTAssertTrue(choosing)
+        let id = await queue.items[0].id
+        await queue.setSelectedTracks(id: id, trackIDs: [1, 2, 3])
+        await queue.confirmTrackSelection(id: id)
+        let finished = await waitUntil(queue) { _ in outcomeBox.outcomes.count == 1 }
+        XCTAssertTrue(finished)
+        XCTAssertEqual(outcomeBox.outcomes, [BatchOutcome(done: 3, failed: 0, cancelled: 0, skipped: 0)])
+        XCTAssertEqual(box.calls, 1)
+        XCTAssertEqual(box.ids, [1, 2, 3])
+        let item = await queue.items[0]
+        XCTAssertEqual(item.tracks.map(\.status), [
+            .done(cueCount: 2, unrecognizedCount: 0, outputPath: "/films/Movie.en.srt"),
+            .done(cueCount: 2, unrecognizedCount: 0, outputPath: "/films/Movie.en.forced.srt"),
+            .done(cueCount: 2, unrecognizedCount: 0, outputPath: "/films/Movie.es.srt")
+        ])
+        XCTAssertEqual(script.writes.map(\.0), [
+            "/films/Movie.en.srt",
+            "/films/Movie.en.forced.srt",
+            "/films/Movie.es.srt"
+        ])
+        let line = await queue.batchLine
+        XCTAssertTrue(line?.text.hasPrefix("3 done in ") == true)
+        XCTAssertEqual(line?.failed, false)
+
+        await queue.setSelectedTracks(id: id, trackIDs: [])
+        await queue.add(paths: ["/films/Other.mkv"])
+        let otherChoosing = await waitUntil(queue) { queue in
+            queue.items.count == 2 && queue.items[1].awaitsTrackChoice
+        }
+        XCTAssertTrue(otherChoosing)
+        let other = await queue.items[1].id
+        await queue.setSelectedTracks(id: other, trackIDs: [])
+        await queue.confirmTrackSelection(id: other)
+        let skipped = await waitUntil(queue) { _ in outcomeBox.outcomes.count == 2 }
+        XCTAssertTrue(skipped)
+        let skippedItem = await queue.items[1]
+        XCTAssertEqual(skippedItem.status, .skipped(MKVCopy.noTracksSelected))
+        XCTAssertEqual(outcomeBox.outcomes[1].skipped, 1)
+        XCTAssertEqual(outcomeBox.outcomes[1].failed, 0)
+    }
+
+    func testASingleOutputShowsTheFinishedSummaryOnly() async {
+        let script = Script()
+        let queue = await makeQueue(script: script) { _ in
+            sampleResult(cues: 1, failures: 0)
+        }
+        await queue.add(paths: ["/films/Movie.sup"])
+        let finished = await waitUntil(queue) { queue in
+            if case .done = queue.items.first?.status { return true }
+            return false
+        }
+        XCTAssertTrue(finished)
+        let line = await queue.batchLine
+        XCTAssertTrue(line?.text.hasPrefix("1 done in ") == true)
+        XCTAssertEqual(line?.running, false)
+        await queue.clearFinished()
+        let cleared = await queue.batchLine
+        XCTAssertNil(cleared)
+    }
+}
+
+private final class NativeCallBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCalls = 0
+    private var storedIDs = Set<Int>()
+
+    func note(_ ids: Set<Int>) {
+        lock.lock()
+        storedCalls += 1
+        storedIDs = ids
+        lock.unlock()
+    }
+
+    var calls: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedCalls
+    }
+
+    var ids: Set<Int> {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedIDs
+    }
 }
 
 private let englishThenJapanese = Data(
@@ -1373,6 +1483,7 @@ private func makeQueue(
     preferences: ConversionPreferences = .default,
     script: Script,
     mkv: MKVClient = .unavailable,
+    native: MKVNativeClient = .live,
     convert: @escaping @Sendable (ConversionWork) async throws -> TranscriptionResult
 ) async -> ConversionQueue {
     let listing = script.listing
@@ -1391,7 +1502,8 @@ private func makeQueue(
         directoryExists: { script.directoryExists($0) },
         listing: listing,
         convert: convert,
-        mkv: mkv
+        mkv: mkv,
+        native: native
     )
     return await ConversionQueue(preferences: preferences, services: services)
 }

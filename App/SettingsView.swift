@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UserNotifications
 import PGSCore
 
 /// Output folder, language, collisions, concurrency, italics, and the MKV track picker.
@@ -13,6 +15,8 @@ struct SettingsView: View {
     @AppStorage(ConversionPreferenceKey.italics) private var experimentalItalics = false
     @AppStorage(ConversionPreferenceKey.chooseMKVTrack) private var chooseMKVTrack = false
     @AppStorage(ConversionPreferenceKey.saveTiming) private var saveTiming = SaveTiming.immediately.rawValue
+    @AppStorage(ConversionPreferenceKey.batchNotification) private var batchNotification = BatchNotificationPolicy.whenBatchFinishes.rawValue
+    @State private var notificationsOff = false
 
     var body: some View {
         Form {
@@ -87,17 +91,49 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Choose the subtitle track for each MKV", isOn: $chooseMKVTrack)
-                Text("Off uses the English PGS track, or the first PGS track when the file has no English one.")
+                Text("Off uses the English PGS track, or the first PGS track when the file has no English one. On, an MKV with more than one PGS track lets you check which tracks to convert.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("The app reads an MKV itself. MKVToolNix is used only when that reader cannot handle the file.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {
                 Text("MKV")
             }
+
+            Section {
+                Picker("Send a notification:", selection: $batchNotification) {
+                    Text("When a batch finishes").tag(BatchNotificationPolicy.whenBatchFinishes.rawValue)
+                    Text("Only when something fails").tag(BatchNotificationPolicy.onlyOnFailure.rawValue)
+                    Text("Never").tag(BatchNotificationPolicy.never.rawValue)
+                }
+                Text("Only when PGS2SRT isn't the active app. The alert uses the window's summary, for example \"3 done, 1 failed, 1 skipped in 2m 14s\".")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if notificationsOff && batchNotification != BatchNotificationPolicy.never.rawValue {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "bell.slash")
+                        Text("**Notifications are off for PGS2SRT in System Settings.** Turn them on to get these alerts. The summary line in the window still works.")
+                    }
+                    .font(.callout)
+                    Button("Open System Settings") {
+                        NotificationSettingsLink.open()
+                    }
+                }
+            } header: {
+                Text("Notifications")
+            }
         }
         .formStyle(.grouped)
         .padding(12)
-        .frame(width: 560, height: 820)
-        .onAppear { push() }
+        .frame(width: 560, height: 1040)
+        .onAppear {
+            push()
+            refreshNotificationAccess()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshNotificationAccess()
+        }
         .onChange(of: placement) { _ in push() }
         .onChange(of: outputFolder) { _ in push() }
         .onChange(of: language) { _ in push() }
@@ -106,6 +142,7 @@ struct SettingsView: View {
         .onChange(of: experimentalItalics) { _ in push() }
         .onChange(of: chooseMKVTrack) { _ in push() }
         .onChange(of: saveTiming) { _ in push() }
+        .onChange(of: batchNotification) { _ in push() }
     }
 
     private var languageOptions: [(label: String, tag: String)] {
@@ -133,7 +170,25 @@ struct SettingsView: View {
             concurrency: concurrency,
             experimentalItalics: experimentalItalics,
             chooseMKVTrack: chooseMKVTrack,
-            saveTiming: SaveTiming(rawValue: saveTiming) ?? .immediately
+            saveTiming: SaveTiming(rawValue: saveTiming) ?? .immediately,
+            batchNotification: BatchNotificationPolicy(rawValue: batchNotification) ?? .whenBatchFinishes
         ))
+    }
+
+    private func refreshNotificationAccess() {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let off: Bool
+            switch settings.authorizationStatus {
+            case .denied:
+                off = true
+            case .authorized, .provisional:
+                off = settings.alertSetting == .disabled
+            default:
+                off = false
+            }
+            Task { @MainActor in
+                notificationsOff = off
+            }
+        }
     }
 }

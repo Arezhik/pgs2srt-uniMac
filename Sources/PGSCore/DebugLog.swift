@@ -338,6 +338,15 @@ extension ConversionPreferences {
         let italics = experimentalItalics ? "on" : "off"
         let choose = chooseMKVTrack ? "on" : "off"
         let when = saveTiming == .afterReview ? "hold for review" : "save right away"
-        return "language \(language), save \(place), if the .srt exists \(existing), \(concurrency) pictures at a time, italics \(italics), choose MKV track \(choose), after conversion \(when)"
+        let notifications: String
+        switch batchNotification {
+        case .whenBatchFinishes:
+            notifications = "when a batch finishes"
+        case .onlyOnFailure:
+            notifications = "only when something fails"
+        case .never:
+            notifications = "off"
+        }
+        return "language \(language), save \(place), if the .srt exists \(existing), \(concurrency) pictures at a time, italics \(italics), choose MKV track \(choose), after conversion \(when), notifications \(notifications)"
     }
 }

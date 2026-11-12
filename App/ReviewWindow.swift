@@ -35,8 +35,11 @@ enum ReviewFormat {
         return base.isEmpty ? name : base
     }
 
-    static func subtitle(cueCount: Int, edited: Int, needsWriting: Bool) -> String {
+    static func subtitle(cueCount: Int, edited: Int, needsWriting: Bool, trackNumber: Int? = nil) -> String {
         var parts = [cues(cueCount)]
+        if let trackNumber {
+            parts.append("Track \(trackNumber)")
+        }
         if edited > 0 { parts.append("Edited") }
         if needsWriting { parts.append("not saved yet") }
         return parts.joined(separator: " · ")
@@ -477,7 +480,8 @@ private struct ReviewEditor: View {
     @State private var searchText = ""
 
     var body: some View {
-        let itemName = model.items.first { $0.id == file.itemID }?.name ?? "Subtitles"
+        let itemName = model.reviewTitle(for: file.itemID)
+            ?? ReviewFormat.title(for: model.displayName(for: file.itemID))
         let summary = file.summary
         let document = file.document
         VStack(spacing: 0) {
@@ -487,11 +491,12 @@ private struct ReviewEditor: View {
             } detail: {
                 detail
             }
-            .navigationTitle(ReviewFormat.title(for: itemName))
+            .navigationTitle(itemName)
             .navigationSubtitle(ReviewFormat.subtitle(
                 cueCount: document.cues.count,
                 edited: document.editedCount,
-                needsWriting: summary.needsWriting
+                needsWriting: summary.needsWriting,
+                trackNumber: model.reviewTrackNumber(for: file.itemID)
             ))
             Divider()
             statusBar

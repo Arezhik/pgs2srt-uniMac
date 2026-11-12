@@ -19,9 +19,9 @@ Minimum system: macOS 13 Ventura. Open the project in Xcode 27.
 
 By default the `.srt` is written next to the source file, with the same name: `Movie.sup` becomes `Movie.srt`, and `Movie.mkv` becomes `Movie.srt`.
 
-The first time you add files, macOS may ask whether PGS2SRT can send notifications. If you allow it, a notification appears when the batch finishes and says how many files are done and how many failed. If you say no, conversion still works; you just will not get that notification. The app asks once.
+The first time a batch starts, macOS may ask whether PGS2SRT can send notifications. If you allow it, a notification appears when the batch finishes, but only when PGS2SRT is not the active app. The notification says the same thing as the summary line in the window, for example `3 done, 1 failed, 1 skipped in 2m 14s`. Settings can limit that notification to failures, or turn it off. If you say no, conversion still works; you just will not get that notification. The summary line in the window still works.
 
-An `.mkv` is converted from the PGS subtitle track inside it. That uses [MKVToolNix](https://mkvtoolnix.download) (`mkvmerge` and `mkvextract`). If those tools are not installed, the row says so and links to the download. The picture subtitles are extracted to a temporary file, converted the same way as a `.sup`, and the temporary file is removed when the row finishes, fails, or is cancelled.
+An `.mkv` is converted from the PGS subtitle tracks inside it. PGS2SRT reads the file itself. If a file cannot be read that way and [MKVToolNix](https://mkvtoolnix.download) is installed, that file is read with `mkvmerge` and `mkvextract` instead, and the debug log says so. Picture subtitles from the fallback are extracted to a temporary file, converted the same way as a `.sup`, and the temporary file is removed when the row finishes, fails, or is cancelled. A native read does not leave a temporary file.
 
 ### Dock icon and Open With
 
@@ -39,7 +39,7 @@ Choose **PGS2SRT → Settings…** (or the Settings… button). The choices are 
 - **Language.** English is the default. This is the language Apple Vision looks for.
 - **Pictures to read at once.** Files are converted one at a time, so the progress count stays easy to read. This number is how many pictures inside the current file are read together. The default is 4.
 - **Experimental italics.** Off by default. Turn it on only if you want the app to guess which lines lean and wrap those words in `<i>` tags. On a real Blu-ray that guess often marks ordinary upright dialogue, so leave it off unless you want to try it. It is the same switch as `--italics` on the command line.
-- **Choose the subtitle track for each MKV.** Off by default. Off uses the English PGS track, or the first PGS track when the file has no English one. On shows a sheet for each MKV listing the PGS tracks (number, language, name, and the forced and default flags), with that usual choice already selected. Convert uses the selected track. Skip leaves that file alone.
+- **Choose the subtitle track for each MKV.** Off by default. Off uses the English PGS track, or the first PGS track when the file has no English one, and saves `Movie.srt`. On, an MKV with more than one PGS track shows **Tracks: N of M**. Check the tracks you want. One track still saves `Movie.srt`. Several tracks save `Movie.en.srt`, `Movie.en.forced.srt`, `Movie.es.srt`, and so on. Close the list by clicking outside it. No tracks checked skips that file.
 
 ## Convert a .sup file from Terminal
 
@@ -93,7 +93,7 @@ The **PGS2SRT** scheme is the window. Use that for drag-and-drop. The **pgs2srt*
 
 ## Open it in Xcode and press Run
 
-You do not need Python or Homebrew to convert a `.sup` file. An `.mkv` needs [MKVToolNix](https://mkvtoolnix.download) installed (`mkvmerge` and `mkvextract`).
+You do not need Python, Homebrew, or MKVToolNix to convert a `.sup` or an `.mkv`. If an `.mkv` cannot be read by the app and [MKVToolNix](https://mkvtoolnix.download) is installed (`mkvmerge` and `mkvextract`), that file uses MKVToolNix instead.
 
 1. Install Xcode 27 from the App Store if it is not already installed.
 2. Download this repository (the green Code button, or the pull request’s checkout).
@@ -146,8 +146,8 @@ The downloaded app converts `.sup` files. Drop one on the window, or use Open…
 - Write an `.srt` file: cue numbers, `HH:MM:SS,mmm` times, and CRLF line endings (LF is available too).
 - Recognize the words with Apple Vision (`VNRecognizeTextRequest`, accurate mode, language correction, English by default). The pictures are prepared first. Light letters are drawn on black and dark letters on white. A light fill with a dark outline, the usual Blu-ray letter, counts as light ink, so the outline is ignored and the fill is kept on black. Lines are padded and enlarged when the line is tiny, then ordered top to bottom. Italic tags are off unless you turn on Experimental italics in Settings, or pass `--italics` to the command. That lean check is experimental. Common OCR junk is cleaned up (a lone `l` that should be `I`, a bar read as a letter, extra spaces, stray marks). A space before an apostrophe that starts a word, as in "it 'cause", is kept. Spaces inside a contraction, as in "don ' t", are still joined.
 - Keep a cue when recognition fails. The `.srt` line says `[OCR failed: …]` instead of skipping it. Several pictures are read at once, with progress, and the work can be cancelled.
-- A Mac window with a queue: drop files or folders, Open…, Dock drops, and Finder’s Open With. `.sup` and `.mkv` files are accepted. Each row shows waiting, extracting (for an MKV), progress, done (with the cue count and any `[OCR failed]` count), or the decoder’s own error text. Settings remember the output folder, the language, what to do when the `.srt` already exists, how many pictures to read at once, Experimental italics, and whether to choose the PGS track in each MKV. A notification reports how many files finished and how many failed.
-- MKV conversion by calling MKVToolNix. `mkvmerge -J` lists the tracks. The English PGS track is used, or the first PGS track when there is no English one, unless Settings asks you to pick. `mkvextract` writes that track to a temporary `.sup`, the usual pipeline converts it, and the temporary file is deleted. Cancel stops a running `mkvmerge` or `mkvextract`. An MKV with no PGS track is skipped. If MKVToolNix is not installed, the row says so and links to https://mkvtoolnix.download.
+- A Mac window with a queue: drop files or folders, Open…, Dock drops, and Finder’s Open With. `.sup` and `.mkv` files are accepted. Each row shows waiting, extracting (for an MKV), progress, done (with the cue count and any `[OCR failed]` count), or the decoder’s own error text. A multi-track MKV shows one sub-row per selected track. The footer summarizes a batch of more than one output while it runs (`Converting 2 of 5`) and when it finishes (`3 done, 1 failed, 1 skipped in 2m 14s`). The Dock icon shows how many outputs are left and a thin progress bar for the whole batch. Settings remember the output folder, the language, what to do when the `.srt` already exists, how many pictures to read at once, Experimental italics, whether to choose the PGS tracks in each MKV, and when to send a notification.
+- MKV conversion in Swift. The app lists PGS tracks (`S_HDMV/PGS`) and rebuilds a `.sup` in memory, including zlib compression and header stripping. The English PGS track is used, or the first PGS track when there is no English one, unless Settings asks you to pick. Several chosen tracks are extracted in one pass. If the native reader fails and MKVToolNix is installed, `mkvmerge -J` lists the tracks again, matched by track number, and one `mkvextract` call writes them to temporary `.sup` files. The debug log records the fallback. Cancel stops a running `mkvmerge` or `mkvextract`, and it stops a native read between clusters. An MKV with no PGS track is skipped. If the native reader fails and MKVToolNix is not installed, the row shows the native error.
 - `pgs2srt`, the Mac command that runs that whole path from a `.sup` file to an `.srt` file. The window calls the same pipeline. It does not run the command in the background.
 - `pgsdump`, a small command-line tool that writes each decoded picture as a PAM image so a person can look at it. It does not recognize text, and it runs on Linux too.
 
@@ -189,10 +189,11 @@ If the folder contains any `.sup` file, the fixture test decodes it and fails if
 2. **Done.** Apple Vision text recognition, image preparation, cleanup, a cancellable batch pipeline, and the `pgs2srt` command.
 3. **Done.** The window: drop files or folders, a queue with progress, Settings, and a notification when a batch finishes.
 4. **Done.** MKV files, by calling MKVToolNix (`mkvmerge` and `mkvextract`) when it is installed, including a setting to choose the PGS track.
-5. **Next.** Preview and edit the lines before saving.
-6. **Later.** Read MKV files in Swift, without mkvextract. Then sign and notarize the app.
-7. **After that.** Windows. The decoder stays free of Apple-only imports so that can share it.
+5. **Done.** Preview and edit the lines before saving.
+6. **Done.** Read MKV files in Swift, with MKVToolNix as a fallback, and convert more than one PGS track in one pass. The window summarizes the batch, the Dock icon shows progress, and Settings chooses when to notify.
+7. **Later.** Sign and notarize the app.
+8. **After that.** Windows. The decoder stays free of Apple-only imports so that can share it.
 
 ## Not in this version
 
-No subtitle editor, and the app is not notarized. MKV conversion needs MKVToolNix; the app does not read an MKV by itself.
+No subtitle editor beyond the review window, and the app is not notarized. An `.mkv` is read by the app. MKVToolNix is only a fallback for a file that reader cannot handle.

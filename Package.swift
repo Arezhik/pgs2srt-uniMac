@@ -36,7 +36,14 @@ let package = Package(
         .executable(name: "pgs2srt", targets: ["pgs2srt"])
     ],
     targets: [
-        .target(name: "PGSCore"),
+        .systemLibrary(
+            name: "CZLib",
+            path: "Sources/CZLib"
+        ),
+        .target(
+            name: "PGSCore",
+            dependencies: ["CZLib"]
+        ),
         .target(name: "VisionOCR", dependencies: ["PGSCore"]),
         .executableTarget(name: "pgsdump", dependencies: ["PGSCore"]),
         .executableTarget(name: "pgs2srt", dependencies: ["PGSCore", "VisionOCR"]),
