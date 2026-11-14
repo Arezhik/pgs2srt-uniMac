@@ -115,6 +115,8 @@ The decoder lives in a Swift package named **PGS2SRTKit** (`Package.swift` at th
 
 `App/project.yml` is a recipe for [XcodeGen](https://github.com/yonaskolb/XcodeGen). You can ignore it. It is only there so a developer can regenerate the Xcode project later (`brew install xcodegen`, then `cd App` and `xcodegen generate`).
 
+`AGENTS.md` has the rules for coding agents (and a short project map). Read it before the first change.
+
 ## Download the app that GitHub built
 
 GitHub builds the universal app on a Mac runner for every pull request and every push to `main`.
