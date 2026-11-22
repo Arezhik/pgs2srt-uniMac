@@ -28,6 +28,7 @@
 - Edit source files directly in the working tree. Don't generate `apply_changes.py` or `verify.diff`.
 - Run `./scripts/verify-linux.sh`. It regenerates the Xcode project with XcodeGen when Swift is absent and `App/project.yml` exists (via a temp copy named `pgs2srt-uniMac` if this clone folder isn't), then reports that this repo has no other non-Swift check scripts. A second run must change nothing. Besides Swift builds, the Linux job in `.github/workflows/ci.yml` only runs `swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors`, `swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors`, and a bash step that runs `.build/debug/pgs2srt --help` and `.build/debug/pgs2srt sample.sup` (that step needs the Swift build). Nothing else to run here. Inspect `git diff` so only intended changes are staged. Don't run `swift test`, `swift build`, or `xcodebuild` here; they run in GitHub CI after push.
 - To add a new Core type and its test, run `./scripts/scaffold-swift.sh <Name> [Subfolder]` first instead of creating the files by hand.
+- To add a new UI flow test, run `./scripts/scaffold-xcuitest.sh <FlowName>` first instead of creating the file by hand.
 - Push to a feature branch `grok/<slug>`, then open a PR with `gh pr create --fill` (or `--draft` for work in progress) because CI runs on pull requests. Check CI with `gh pr checks` or `gh run list` only if `gh auth status` succeeds. No version bump, no CHANGELOG change.
 
 ## This project
