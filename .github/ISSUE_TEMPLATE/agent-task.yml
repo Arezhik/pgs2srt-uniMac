@@ -1,0 +1,66 @@
+name: Feature or Bug (Agent-Ready)
+description: Structured issue format for fast, token-efficient implementation
+title: "[Type]: "
+labels: ["triage"]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Issue Type
+      options:
+        - Feature
+        - Bug
+        - UI / UX
+        - Refactor
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: 1-2 sentences describing the exact behavior change needed.
+      placeholder: Allow .mka files with clean stems to match longer .mkv filenames while keeping the .mkv output filename.
+    validations:
+      required: true
+
+  - type: textarea
+    id: rules
+    attributes:
+      label: Rules & Logic
+      description: Deterministic rules, edge cases, and fallback behavior (bullet points).
+      placeholder: |
+        - Case-insensitive prefix match with delimiter boundary
+        - Longest .mka stem matches first
+        - Show inline Picker if ambiguity remains
+    validations:
+      required: true
+
+  - type: textarea
+    id: ui
+    attributes:
+      label: UI / UX Requirements
+      description: Control types, exact labels, default states, and placement (or "None").
+      placeholder: Add SwiftUI Toggle labeled "Match on MKA Name" (default off).
+    validations:
+      required: false
+
+  - type: textarea
+    id: test_cases
+    attributes:
+      label: Test Cases (Input -> Expected)
+      description: Concrete input/output examples for unit tests and verification.
+      placeholder: |
+        - `Movie (1990).mka` + `Movie (1990) CRF21.mkv` -> Match; output `Movie (1990) CRF21.mkv`
+        - `Alien (1979).mka` + `Aliens (1979).mkv` -> No match
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints / Out of Scope
+      description: Existing behaviors that must remain unchanged.
+      placeholder: When toggle is off, preserve existing exact matching behavior.
+    validations:
+      required: false
