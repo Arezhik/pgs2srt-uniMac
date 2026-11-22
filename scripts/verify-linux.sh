@@ -10,6 +10,61 @@ cd "$ROOT"
 DEFAULT_XCODEGEN="/workspace/macos-dev-test/projects/mkv-forge/icon/tools/XcodeGen-2.48.0/.build/x86_64-unknown-linux-gnu/release/xcodegen"
 XCODEGEN="${XCODEGEN:-$DEFAULT_XCODEGEN}"
 
+# XcodeGen names the local package folder reference after the repo directory
+# (absolutePath.lastComponent). Use the GitHub repo name so a clone folder
+# like PGS2SRT or MP4SubRip still produces a stable project. Override with
+# XCODEGEN_CLONE_NAME if needed.
+xcodegen_clone_name() {
+  if [ -n "${XCODEGEN_CLONE_NAME:-}" ]; then
+    printf '%s\n' "$XCODEGEN_CLONE_NAME"
+    return
+  fi
+  local url
+  url="$(git -C "$ROOT" remote get-url origin 2>/dev/null || true)"
+  if [ -z "$url" ]; then
+    basename "$ROOT"
+    return
+  fi
+  url="${url%/}"
+  url="${url%.git}"
+  basename "$url"
+}
+
+generate_xcode_project() {
+  local spec="$1"
+  local spec_dir expected current tmp wrap rel src dst
+  spec_dir="$(cd "$(dirname "$spec")" && pwd)"
+  expected="$(xcodegen_clone_name)"
+  current="$(basename "$ROOT")"
+
+  if [ "$current" = "$expected" ]; then
+    echo "verify-linux: running xcodegen in $spec_dir (clone folder $current)"
+    (cd "$spec_dir" && "$XCODEGEN" generate --spec "$spec")
+    return
+  fi
+
+  echo "verify-linux: clone folder is $current; generating via a temp copy named $expected so the local package reference stays stable"
+  tmp="$(mktemp -d)"
+  wrap="$tmp/$expected"
+  mkdir "$wrap"
+  if ! (cd "$ROOT" && tar --exclude=./.git --exclude=./.build --exclude=./.swiftpm -cf - .) | (cd "$wrap" && tar -xf -); then
+    rm -rf "$tmp"
+    echo "verify-linux: failed to copy the working tree for XcodeGen" >&2
+    exit 1
+  fi
+  rel="${spec_dir#"$ROOT"/}"
+  if ! (cd "$wrap/$rel" && "$XCODEGEN" generate --spec "$wrap/${spec#"$ROOT"/}"); then
+    rm -rf "$tmp"
+    echo "verify-linux: xcodegen generate failed" >&2
+    exit 1
+  fi
+  src="$(ls -d "$wrap/$rel"/*.xcodeproj)"
+  dst="$spec_dir/$(basename "$src")"
+  rm -rf "$dst"
+  cp -a "$src" "$dst"
+  rm -rf "$tmp"
+}
+
 SPEC=""
 if [ -f "$ROOT/App/project.yml" ]; then
   SPEC="$ROOT/App/project.yml"
@@ -25,11 +80,7 @@ if ! command -v swift >/dev/null 2>&1; then
       exit 1
     fi
     echo "verify-linux: swift not on PATH; generating Xcode project from $SPEC"
-    SPEC_DIR="$(cd "$(dirname "$SPEC")" && pwd)"
-    (
-      cd "$SPEC_DIR"
-      "$XCODEGEN" generate --spec "$SPEC"
-    )
+    generate_xcode_project "$SPEC"
   else
     echo "verify-linux: swift not on PATH and no project.yml found; skipping XcodeGen"
   fi
