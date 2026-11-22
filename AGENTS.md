@@ -23,6 +23,12 @@
 - Versioning: keep `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in sync in `App/project.yml` and `App/PGS2SRT.xcodeproj`. Bump marketing for user-visible app changes and always raise the build number by 1; never reuse a build. Docs-only and CI-only PRs don't bump. Put the old → new version (and build) in the PR description. Arezhik confirms it at merge.
 - Cloud agents: `.cursor/environment.json` installs Swift and MKVToolNix for Linux package work. The app and Vision still need macOS CI / Arezhik's Mac.
 
+### Local Linux VM (no Swift installed)
+- Apply these rules only when `command -v swift` finds nothing (or when xcodegen exists at `/workspace/macos-dev-test/projects/mkv-forge/icon/tools/XcodeGen-2.48.0/.build/x86_64-unknown-linux-gnu/release/xcodegen`). Everywhere else the rules above apply unchanged.
+- Edit source files directly in the working tree. Don't generate `apply_changes.py` or `verify.diff`.
+- If project structure or targets changed and the repo uses `App/project.yml`, run `/workspace/macos-dev-test/projects/mkv-forge/icon/tools/XcodeGen-2.48.0/.build/x86_64-unknown-linux-gnu/release/xcodegen generate` in `App/` from a clone folder whose name matches what the project expects. This repo has no non-Swift check scripts (`scripts/` is absent). Besides Swift builds, the Linux job in `.github/workflows/ci.yml` only runs `swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors`, `swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors`, and a bash step that runs `.build/debug/pgs2srt --help` and `.build/debug/pgs2srt sample.sup` (that step needs the Swift build). Nothing else to run here. Inspect `git diff` so only intended changes are staged. Don't run `swift test`, `swift build`, or `xcodebuild` here; they run in GitHub CI after push.
+- Push to a feature branch `grok/<slug>`, then open a PR with `gh pr create --fill` (or `--draft` for work in progress) because CI runs on pull requests. Check CI with `gh pr checks` or `gh run list` only if `gh auth status` succeeds. No version bump, no CHANGELOG change.
+
 ## This project
 - App PGS2SRT, bundle ID `com.pgs2srt.PGS2SRT`, macOS 13.0+.
 - Package `PGS2SRTKit` (libraries `PGSCore`, `VisionOCR`; tools `pgs2srt`, `pgsdump`; tests `PGSCoreTests` and macOS-only `ReviewDelegateProxyTests`). Xcode project `App/PGS2SRT.xcodeproj`, scheme `PGS2SRT`. Optional UI smoke: `App/P2SUITests`.
