@@ -1,4 +1,8 @@
-# Lives in App/ on purpose. Run `xcodegen generate` from this folder.
+# Source of truth for App/PGS2SRT.xcodeproj. Never hand-edit project.pbxproj:
+# change this file, then run ./scripts/verify-linux.sh (XcodeGen 2.48.0).
+# The script generates from a folder named pgs2srt-uniMac (the GitHub repo)
+# so the local package's folder reference stays stable. A second run must
+# change nothing, and the project must have no TEMP_ object IDs.
 # The Xcode project must not sit next to Package.swift, and the package
 # must not be named PGS2SRT. Xcode's IDE otherwise reports the products as missing.
 name: PGS2SRT
@@ -6,14 +10,19 @@ options:
   bundleIdPrefix: com.pgs2srt
   deploymentTarget:
     macOS: "13.0"
-  createIntermediateGroups: true
+  # Off: with `path: .`, intermediate groups leave files under random TEMP_ IDs
+  # so every `xcodegen generate` writes a different project (same as mkv-forge L33).
+  createIntermediateGroups: false
+  defaultConfig: Release
 settings:
-  MACOSX_DEPLOYMENT_TARGET: "13.0"
-  SDKROOT: macosx
-  SUPPORTED_PLATFORMS: macosx
-  SUPPORTS_MACCATALYST: NO
-  SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
-  SWIFT_VERSION: "5.0"
+  # XcodeGen ignores plain keys next to configs:, so project-wide keys go under base:.
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    SDKROOT: macosx
+    SUPPORTED_PLATFORMS: macosx
+    SUPPORTS_MACCATALYST: NO
+    SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    SWIFT_VERSION: "5.0"
   configs:
     Debug:
       # Do not set ARCHS here. Debug follows the run destination (My Mac),
