@@ -111,6 +111,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                     Text(banner)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("intakeBanner")
                     Button("Dismiss") { model.dismissBanner(at: index) }
                         .buttonStyle(.borderless)
                 }
@@ -180,6 +181,7 @@ struct ContentView: View {
                 Text(model.settingsSummary)
                     .lineLimit(2)
                     .truncationMode(.middle)
+                    .accessibilityIdentifier("settingsSummary")
                 Text(model.items.isEmpty ? "The .srt is written next to the file unless Settings says otherwise." : "Drop more files to add them.")
             }
             .font(.callout)

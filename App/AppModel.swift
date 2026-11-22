@@ -21,11 +21,13 @@ final class AppModel: ObservableObject {
     private var focusedReviewWindowID: UUID?
 
     private let queue: ConversionQueue
+    private let defaults: UserDefaults
     static weak var shared: AppModel?
 
-    init() {
+    init(defaults: UserDefaults = UITestingLaunch.defaults) {
+        self.defaults = defaults
         DebugLog.shared.configure(directory: DebugLog.libraryLogsDirectory, mirror: { AppLog.write($0) })
-        let preferences = ConversionPreferenceStore.load(from: .standard)
+        let preferences = ConversionPreferenceStore.load(from: defaults)
         self.preferences = preferences
         let queue = ConversionQueue(preferences: preferences, services: Self.makeServices())
         self.queue = queue
@@ -54,6 +56,7 @@ final class AppModel: ObservableObject {
             importURLs(pending)
         }
         logToolDetection()
+        applyUITestingLaunch()
     }
 
     /// Help menu and the corner button. The file lands on the Desktop, with a save panel if that fails.
@@ -240,6 +243,22 @@ final class AppModel: ObservableObject {
         queue.preferences = preferences
         if changed {
             DebugLog.shared.record(.lifecycle, "Settings \(preferences.logDescription)")
+        }
+    }
+
+    /// `--uitesting` only. Apply `UITEST_OUTPUT_DIR` as the chosen output
+    /// folder and `UITEST_INPUT_DIR` as if it had been opened or dropped.
+    /// An empty input folder produces the usual "no .sup or .mkv files"
+    /// banner and does not start a conversion.
+    private func applyUITestingLaunch() {
+        if let output = UITestingLaunch.outputDirectory() {
+            var preferences = self.preferences
+            preferences.placement = .folder(output.path)
+            ConversionPreferenceStore.save(preferences, to: defaults)
+            updatePreferences(preferences)
+        }
+        if let input = UITestingLaunch.inputDirectory() {
+            add(paths: [input.path])
         }
     }
 
@@ -517,6 +536,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static let inbox = Inbox()
+
+    /// UI tests must not restore a previous window or panel.
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        !UITestingLaunch.isActive
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model = AppModel.shared, model.hasReviewsNeedingSave else { return .terminateNow }
