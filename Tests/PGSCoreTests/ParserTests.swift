@@ -259,6 +259,21 @@ final class ParserTests: XCTestCase {
             }
         }
     }
+
+    /// Matches the PCS + END layout written by UITestFixtureBuilder.createValidPGSFile.
+    func testMinimalEpochStartPCSAndEndParses() throws {
+        let data = makeClear(pts: 90_000, videoWidth: 1920, videoHeight: 1080, state: 0x80)
+        let sets = try SUPParser.parse(data)
+        XCTAssertEqual(sets.count, 1)
+        XCTAssertEqual(sets[0].pts, 90_000)
+        XCTAssertEqual(sets[0].dts, 0)
+        XCTAssertEqual(sets[0].pcs.width, 1920)
+        XCTAssertEqual(sets[0].pcs.height, 1080)
+        XCTAssertEqual(sets[0].pcs.frameRate, 0x10)
+        XCTAssertEqual(sets[0].pcs.compositionNumber, 0)
+        XCTAssertEqual(sets[0].pcs.state, .epochStart)
+        XCTAssertEqual(sets[0].pcs.objects.count, 0)
+    }
 }
 
 /// Drops bytes starting at the second ODS header so a multi-fragment object is left unfinished.

@@ -1,50 +1,48 @@
 import XCTest
 
 final class HelloWorldUITests: XCTestCase {
-    private var fixtureRoot: URL!
+    private var fixtures: UITestFixtureBuilder!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("Input", isDirectory: true), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("Output", isDirectory: true), withIntermediateDirectories: true)
-        fixtureRoot = root
+        fixtures = try UITestFixtureBuilder()
+        // A valid .sup in UITEST_INPUT_DIR is ingested like a drop and conversion
+        // starts immediately (including OCR). A 0-byte dummy still appears in the
+        // queue and fails quickly on an empty stream.
+        try fixtures.createDummyFile(in: fixtures.input, named: "sample.sup")
     }
 
     override func tearDownWithError() throws {
-        if let fixtureRoot {
-            try? FileManager.default.removeItem(at: fixtureRoot)
-        }
+        fixtures?.cleanup()
+        fixtures = nil
     }
 
     func testAppOpensToDropScreen() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting", "-ApplePersistenceIgnoreState", "YES"]
         app.launchEnvironment = [
-            "UITEST_INPUT_DIR": fixtureRoot.appendingPathComponent("Input", isDirectory: true).path,
-            "UITEST_OUTPUT_DIR": fixtureRoot.appendingPathComponent("Output", isDirectory: true).path,
+            "UITEST_INPUT_DIR": fixtures.input.path,
+            "UITEST_OUTPUT_DIR": fixtures.output.path,
         ]
         app.launch()
 
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5),
                       "The main application window never showed up")
 
-        // The big title on the drop screen.
+        // The title stays in the header after the queue replaces the drop screen.
         XCTAssertTrue(app.staticTexts["PGS2SRT"].waitForExistence(timeout: 10),
-                      "The drop screen title never showed up")
+                      "The window title never showed up")
 
         // The toolbar button. The name uses the single "…" character, not three dots.
         XCTAssertTrue(app.buttons["Open…"].exists, "The Open… button is missing")
 
-        // An empty input folder is ingested the same way as Open… / drop.
-        let banner = app.descendants(matching: .any)["intakeBanner"]
-        XCTAssertTrue(banner.waitForExistence(timeout: 5), "The intake banner never showed up")
-        XCTAssertTrue(banner.label.contains("Input"),
-                      "The input folder was not seeded from UITEST_INPUT_DIR: \(banner.label)")
+        let item = app.staticTexts["sample.sup"]
+        XCTAssertTrue(item.waitForExistence(timeout: 5),
+                      "The seeded sample.sup row never showed up")
 
         let summary = app.descendants(matching: .any)["settingsSummary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 5), "The settings summary never showed up")
-        XCTAssertTrue(summary.label.contains("Output"),
+        XCTAssertTrue(summary.label.contains("output"),
                       "The output folder was not seeded from UITEST_OUTPUT_DIR: \(summary.label)")
     }
 }

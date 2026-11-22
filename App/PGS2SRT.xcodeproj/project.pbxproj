@@ -21,6 +21,7 @@
 		BFCF8EE42578FCC9C3C07557 /* ReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0B66D179ABB3841EC90534 /* ReviewWindow.swift */; };
 		C4BFF063E986F3C7944BF240 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6BA2AF6045D61B8F6C7A401F /* Assets.xcassets */; };
 		C61915848D5B358A3F139864 /* PGS2SRTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14BBC33ADB45DD9569486789 /* PGS2SRTApp.swift */; };
+		D05953CC9A1819601129C33C /* UITestFixtureBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6283504DCF794F48814E8A1 /* UITestFixtureBuilder.swift */; };
 		E26BD97F94B6A533C302637B /* ReviewWindowDelegateProxy.m in Sources */ = {isa = PBXBuildFile; fileRef = 3804615A0580AD285E5648D8 /* ReviewWindowDelegateProxy.m */; };
 		F98908730E6B085DA8539DCE /* HelloWorldUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503CB9507B4D5A38E2081CB2 /* HelloWorldUITests.swift */; };
 		FDD0C3889CFC4EC67471D1A9 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D48F84F763A969232E1F173B /* AppModel.swift */; };
@@ -51,6 +52,7 @@
 		8BF7142D3159CC7FF12D68CE /* pgs2srt-uniMac */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "pgs2srt-uniMac"; path = ..; sourceTree = SOURCE_ROOT; };
 		8F630CEFE46790BBB409D33F /* UITestingLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestingLaunch.swift; sourceTree = "<group>"; };
 		9E4C571CE16BB8DB4778E604 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B6283504DCF794F48814E8A1 /* UITestFixtureBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestFixtureBuilder.swift; sourceTree = "<group>"; };
 		BA5CB42CD5C41B83824AFB9C /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
 		BE667445FEF49956B476B08E /* IssueDiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueDiagnosticLog.swift; sourceTree = "<group>"; };
 		CD0B66D179ABB3841EC90534 /* ReviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewWindow.swift; sourceTree = "<group>"; };
@@ -152,6 +154,7 @@
 			isa = PBXGroup;
 			children = (
 				503CB9507B4D5A38E2081CB2 /* HelloWorldUITests.swift */,
+				B6283504DCF794F48814E8A1 /* UITestFixtureBuilder.swift */,
 			);
 			path = P2SUITests;
 			sourceTree = "<group>";
@@ -306,6 +309,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F98908730E6B085DA8539DCE /* HelloWorldUITests.swift in Sources */,
+				D05953CC9A1819601129C33C /* UITestFixtureBuilder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
