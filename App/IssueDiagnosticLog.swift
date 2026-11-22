@@ -14,7 +14,7 @@ import PGSCore
 enum IssueDiagnosticLog {
     static let enabled = DiagnosticSwitch.isOn(
         environmentValue: ProcessInfo.processInfo.environment["PGS2SRT_DIAGNOSTICS"],
-        defaultsFlag: UserDefaults.standard.bool(forKey: "PGS2SRTDiagnostics")
+        defaultsFlag: UITestingLaunch.defaults.bool(forKey: "PGS2SRTDiagnostics")
     )
     static let stableCommands = DiagnosticSwitch.stableCommandsEnabled(
         environmentValue: ProcessInfo.processInfo.environment["PGS2SRT_STABLE_COMMANDS"]

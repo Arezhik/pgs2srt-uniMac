@@ -9,6 +9,7 @@ struct PGS2SRTApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
+                .defaultAppStorage(UITestingLaunch.defaults)
                 // An open queue window takes the file, instead of a new window.
                 .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
@@ -22,12 +23,14 @@ struct PGS2SRTApp: App {
         WindowGroup(id: "review", for: UUID.self) { windowID in
             ReviewRoot(windowID: windowID.wrappedValue)
                 .environmentObject(model)
+                .defaultAppStorage(UITestingLaunch.defaults)
         }
         .defaultSize(width: 1080, height: 720)
 
         Settings {
             SettingsView()
                 .environmentObject(model)
+                .defaultAppStorage(UITestingLaunch.defaults)
         }
     }
 }

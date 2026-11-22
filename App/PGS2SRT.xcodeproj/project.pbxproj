@@ -15,6 +15,7 @@
 		64C3066E2213D86925850965 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53426FD9A8516E79D50009F8 /* SettingsView.swift */; };
 		7B640681DBA88C57E5565C3A /* DebugLogSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5CB42CD5C41B83824AFB9C /* DebugLogSupport.swift */; };
 		94F4A9837F19A92CFC7B6385 /* VisionOCR in Frameworks */ = {isa = PBXBuildFile; productRef = A365E27F7A9106C982DAB80C /* VisionOCR */; };
+		95A8FDF8E2E8F5FB5DC954CB /* UITestingLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F630CEFE46790BBB409D33F /* UITestingLaunch.swift */; };
 		AAFAE1218132559B23634E7B /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9E4CAFC4DD918D94C19BB38E /* PGSCore */; };
 		AEA904C862F53F39AF3D16D2 /* PGS2SRTCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661BD66372C350983C3B59AF /* PGS2SRTCLI.swift */; };
 		BFCF8EE42578FCC9C3C07557 /* ReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0B66D179ABB3841EC90534 /* ReviewWindow.swift */; };
@@ -48,6 +49,7 @@
 		6FC288A509FA2473CA630C83 /* ReviewWindowDelegateProxy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ReviewWindowDelegateProxy.h; sourceTree = "<group>"; };
 		88FCCF7582A151BFF36FE4CE /* PGS2SRT.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PGS2SRT.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BF7142D3159CC7FF12D68CE /* pgs2srt-uniMac */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "pgs2srt-uniMac"; path = ..; sourceTree = SOURCE_ROOT; };
+		8F630CEFE46790BBB409D33F /* UITestingLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestingLaunch.swift; sourceTree = "<group>"; };
 		9E4C571CE16BB8DB4778E604 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BA5CB42CD5C41B83824AFB9C /* DebugLogSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogSupport.swift; sourceTree = "<group>"; };
 		BE667445FEF49956B476B08E /* IssueDiagnosticLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssueDiagnosticLog.swift; sourceTree = "<group>"; };
@@ -119,6 +121,7 @@
 				14BBC33ADB45DD9569486789 /* PGS2SRTApp.swift */,
 				CD0B66D179ABB3841EC90534 /* ReviewWindow.swift */,
 				53426FD9A8516E79D50009F8 /* SettingsView.swift */,
+				8F630CEFE46790BBB409D33F /* UITestingLaunch.swift */,
 			);
 			name = App;
 			path = .;
@@ -294,6 +297,7 @@
 				BFCF8EE42578FCC9C3C07557 /* ReviewWindow.swift in Sources */,
 				E26BD97F94B6A533C302637B /* ReviewWindowDelegateProxy.m in Sources */,
 				64C3066E2213D86925850965 /* SettingsView.swift in Sources */,
+				95A8FDF8E2E8F5FB5DC954CB /* UITestingLaunch.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
