@@ -130,7 +130,7 @@ struct ContentView: View {
                 .foregroundStyle(targeted ? Color.accentColor : Color.secondary)
             Text(targeted ? "Drop to convert" : "Drop .sup or .mkv files, or a folder")
                 .font(.title3)
-            Text("You can also click Open…. An .mkv uses the PGS subtitle track inside it.")
+            Text("You can also click Open…. An .mkv uses the PGS subtitle tracks inside it.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: 380)
@@ -160,19 +160,45 @@ struct ContentView: View {
 
     private func queueRow(_ item: ConversionItem) -> some View {
         let _ = model.reviewRevision
-        return QueueRow(
-            item: item,
-            selected: model.selectedItemID == item.id,
-            summary: model.summary(for: item),
-            onCancel: { model.cancel(id: item.id) },
-            onReview: { newWindow in
-                model.selectedItemID = item.id
-                model.requestReview(itemID: item.id, newWindow: newWindow)
-            },
-            onReveal: { model.reveal(item) },
-            onRemove: { model.remove(id: item.id) },
-            onSelect: { model.selectedItemID = item.id }
-        )
+        return VStack(spacing: 0) {
+            QueueRow(
+                item: item,
+                selected: model.selectedItemID == item.id,
+                summary: model.summary(for: item),
+                showTrackPicker: model.preferences.chooseMKVTrack && (item.listedTracks?.count ?? 0) >= 2,
+                trackSelection: item.selectedTrackIDs,
+                onTrackSelection: { ids in
+                    model.setSelectedTracks(id: item.id, trackIDs: ids)
+                },
+                onTrackPickerDismiss: {
+                    model.confirmTrackSelection(id: item.id)
+                },
+                onCancel: { model.cancel(id: item.id) },
+                onReview: { newWindow in
+                    model.selectedItemID = item.id
+                    model.requestReview(itemID: item.id, newWindow: newWindow)
+                },
+                onReveal: { model.reveal(item) },
+                onRemove: { model.remove(id: item.id) },
+                onSelect: { model.selectedItemID = item.id }
+            )
+            if item.tracks.count >= 2 {
+                ForEach(item.tracks) { track in
+                    TrackSubrow(
+                        track: track,
+                        selected: model.selectedItemID == track.id,
+                        summary: model.summary(forReview: track.id),
+                        onReview: { newWindow in
+                            model.selectedItemID = track.id
+                            model.requestReview(itemID: track.id, newWindow: newWindow)
+                        },
+                        onReveal: { model.reveal(track: track, in: item) },
+                        onRemove: { model.removeTrack(itemID: item.id, trackID: track.id) },
+                        onSelect: { model.selectedItemID = track.id }
+                    )
+                }
+            }
+        }
     }
 
     private var footer: some View {
@@ -182,7 +208,16 @@ struct ContentView: View {
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .accessibilityIdentifier("settingsSummary")
-                Text(model.items.isEmpty ? "The .srt is written next to the file unless Settings says otherwise." : "Drop more files to add them.")
+                if let line = model.batchLine {
+                    HStack(spacing: 6) {
+                        Image(systemName: line.failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(line.failed ? Color.red : Color(nsColor: .systemGreen))
+                        Text(line.text)
+                            .foregroundStyle(.primary)
+                    }
+                } else {
+                    Text(model.items.isEmpty ? "The .srt is written next to the file unless Settings says otherwise." : "Drop more files to add them.")
+                }
             }
             .font(.callout)
             .foregroundStyle(.secondary)
@@ -358,12 +393,17 @@ private struct QueueRow: View {
     let item: ConversionItem
     var selected: Bool
     var summary: ReviewRowSummary?
+    var showTrackPicker: Bool
+    var trackSelection: [Int]
+    var onTrackSelection: ([Int]) -> Void
+    var onTrackPickerDismiss: () -> Void
     var onCancel: () -> Void
     var onReview: (Bool) -> Void
     var onReveal: () -> Void
     var onRemove: () -> Void
     var onSelect: () -> Void
     @State private var hovered = false
+    @State private var showTracks = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -380,30 +420,34 @@ private struct QueueRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if item.status.isActive {
+                if showTrackPicker {
+                    trackPicker
+                }
+                if item.tracks.count < 2 {
+                    rowActions
+                } else if item.status.isActive {
                     Button("Cancel", action: onCancel)
                         .controlSize(.small)
-                } else if summary != nil {
-                    reviewButton
-                    Button("Reveal in Finder", action: onReveal)
-                        .controlSize(.small)
-                        .disabled(summary?.canReveal != true)
-                        .help(summary?.canReveal == true ? "Show the .srt in Finder" : "Save the .srt before revealing it in Finder")
-                } else if case .done = item.status {
-                    Button("Reveal in Finder", action: onReveal)
-                        .controlSize(.small)
-                }
-                if item.status.isRemovable {
-                    removeButton
                 }
             }
-            statusLine
-            if case let .converting(completed, total) = item.status {
-                progress(completed: completed, total: total)
-            } else if case .extracting = item.status {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel("Extracting")
+            if item.tracks.count >= 2 {
+                rollupLine
+                if case .extracting = item.status {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Extracting")
+                }
+            } else {
+                statusLine
+            }
+            if item.tracks.count < 2 {
+                if case let .converting(completed, total) = item.status {
+                    progress(completed: completed, total: total)
+                } else if case .extracting = item.status {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Extracting")
+                }
             }
         }
         .padding(.horizontal, 8)
@@ -416,7 +460,7 @@ private struct QueueRow: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             onSelect()
-            if summary != nil {
+            if summary != nil && item.tracks.count < 2 {
                 onReview(NSEvent.modifierFlags.contains(.option))
             }
         }
@@ -425,19 +469,85 @@ private struct QueueRow: View {
         }
         .accessibilityElement(children: .contain)
         .contextMenu {
-            if summary != nil {
+            if summary != nil && item.tracks.count < 2 {
                 Button("Review") { onReview(false) }
                 Button("Review in New Window") { onReview(true) }
             }
-            if summary?.canReveal == true {
-                Button("Reveal in Finder", action: onReveal)
-            } else if case .done = item.status {
-                Button("Reveal in Finder", action: onReveal)
+            if item.tracks.count < 2 {
+                if summary?.canReveal == true {
+                    Button("Reveal in Finder", action: onReveal)
+                } else if case .done = item.status {
+                    Button("Reveal in Finder", action: onReveal)
+                }
             }
             if item.status.isActive {
                 Button("Cancel", action: onCancel)
             }
         }
+    }
+
+    @ViewBuilder
+    private var trackPicker: some View {
+        let total = item.listedTracks?.count ?? 0
+        Button("Tracks: \(trackSelection.count) of \(total)") {
+            showTracks = true
+        }
+        .controlSize(.small)
+        .disabled(!item.status.isActive || isConverting)
+        .popover(isPresented: $showTracks, arrowEdge: .bottom) {
+            TrackPickerPopover(
+                stem: MKVOutputName.stem(of: item.sourcePath),
+                tracks: item.listedTracks ?? [],
+                selection: Set(trackSelection),
+                onSelection: { onTrackSelection(Array($0)) }
+            )
+        }
+        .onChange(of: showTracks) { shown in
+            if !shown {
+                onTrackPickerDismiss()
+            }
+        }
+    }
+
+    private var isConverting: Bool {
+        switch item.status {
+        case .waiting:
+            return false
+        default:
+            return true
+        }
+    }
+
+    @ViewBuilder
+    private var rowActions: some View {
+        if item.status.isActive {
+            Button("Cancel", action: onCancel)
+                .controlSize(.small)
+        } else if summary != nil {
+            reviewButton
+            Button("Reveal in Finder", action: onReveal)
+                .controlSize(.small)
+                .disabled(summary?.canReveal != true)
+                .help(summary?.canReveal == true ? "Show the .srt in Finder" : "Save the .srt before revealing it in Finder")
+        } else if case .done = item.status {
+            Button("Reveal in Finder", action: onReveal)
+                .controlSize(.small)
+        }
+        if item.status.isRemovable {
+            removeButton
+        }
+    }
+
+    private var rollupLine: some View {
+        let pieces = TrackRollupText.pieces(for: item.tracks.map(\.status))
+        return HStack(spacing: 0) {
+            ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
+                Text(piece.text)
+                    .foregroundStyle(piece.isFailure ? Color.red : Color.secondary)
+            }
+        }
+        .font(.callout)
+        .textSelection(.enabled)
     }
 
     @ViewBuilder
@@ -513,6 +623,13 @@ private struct QueueRow: View {
         }
         switch item.status {
         case .waiting:
+            if item.listedTracks?.count == 1 {
+                let stem = MKVOutputName.stem(of: item.sourcePath)
+                return "1 PGS track · saves \(stem).srt"
+            }
+            if item.listedTracks?.isEmpty == true {
+                return MKVCopy.noPGS
+            }
             return "Waiting"
         case .extracting:
             return "Extracting…"
@@ -570,6 +687,180 @@ private struct QueueRow: View {
                     .accessibilityLabel("Reading")
             }
         }
+    }
+}
+
+private struct TrackSubrow: View {
+    let track: ConversionTrack
+    var selected: Bool
+    var summary: ReviewRowSummary?
+    var onReview: (Bool) -> Void
+    var onReveal: () -> Void
+    var onRemove: () -> Void
+    var onSelect: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.track.displayLanguage)
+                    .font(.body)
+                if !secondary.isEmpty {
+                    Text(secondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 8)
+            Text(statusText)
+                .font(.callout)
+                .foregroundStyle(isFailed ? Color.red : Color.secondary)
+                .multilineTextAlignment(.trailing)
+            if summary != nil {
+                reviewButton
+                Button("Reveal in Finder", action: onReveal)
+                    .controlSize(.small)
+                    .disabled(summary?.canReveal != true)
+            } else if isDone {
+                Button("Reveal in Finder", action: onReveal)
+                    .controlSize(.small)
+            }
+            if track.status.isRemovable {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.plain)
+                .opacity(hovered ? 1 : 0)
+                .accessibilityLabel("Remove This Track")
+                .help("Remove This Track")
+            }
+        }
+        .padding(.leading, 28)
+        .padding(.trailing, 8)
+        .padding(.vertical, 4)
+        .background(selected ? Color.accentColor.opacity(0.16) : (hovered ? Color.primary.opacity(0.08) : Color.clear))
+        .background {
+            RowHover(setHovered: { hovered = $0 })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onSelect()
+            if summary != nil {
+                onReview(NSEvent.modifierFlags.contains(.option))
+            }
+        }
+        .onTapGesture(count: 1) { onSelect() }
+        .contextMenu {
+            if summary != nil {
+                Button("Review") { onReview(false) }
+                Button("Review in New Window") { onReview(true) }
+            }
+            if summary?.canReveal == true || isDone {
+                Button("Reveal in Finder", action: onReveal)
+            }
+            if track.status.isRemovable {
+                Button("Remove This Track", action: onRemove)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private var isDone: Bool {
+        if case .done = track.status { return true }
+        return false
+    }
+
+    private var isFailed: Bool {
+        if case .failed = track.status { return true }
+        return false
+    }
+
+    private var secondary: String {
+        var parts: [String] = []
+        if track.track.forced { parts.append("Forced") }
+        if track.track.isDefault { parts.append("Default") }
+        let name = track.track.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { parts.append(name) }
+        return parts.joined(separator: " · ")
+    }
+
+    private var statusText: String {
+        if case .awaitingReview = track.status {
+            return "Ready to review · not saved yet"
+        }
+        if let summary, summary.needsWriting, isDone {
+            return summary.statusText
+        }
+        return TrackStatusText.line(track.status)
+    }
+
+    @ViewBuilder
+    private var reviewButton: some View {
+        let action = { onReview(NSEvent.modifierFlags.contains(.option)) }
+        if summary?.prominentReview == true {
+            Button("Review", action: action)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        } else {
+            Button("Review", action: action)
+                .controlSize(.small)
+        }
+    }
+}
+
+private struct TrackPickerPopover: View {
+    var stem: String
+    var tracks: [PGSSubtitleTrack]
+    var selection: Set<Int>
+    var onSelection: (Set<Int>) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(tracks) { track in
+                Toggle(isOn: Binding(
+                    get: { selection.contains(track.id) },
+                    set: { checked in
+                        var next = selection
+                        if checked {
+                            next.insert(track.id)
+                        } else {
+                            next.remove(track.id)
+                        }
+                        onSelection(next)
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(track.displayLanguage)
+                        Text(track.pickerDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
+            Text(MKVOutputName.savesLine(
+                stem: stem,
+                tracks: tracks.filter { selection.contains($0.id) }
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Select All") {
+                    onSelection(Set(tracks.map(\.id)))
+                }
+                Button("Select None") {
+                    onSelection([])
+                }
+            }
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: 320)
     }
 }
 

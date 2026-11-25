@@ -32,6 +32,16 @@ public struct PGSSubtitleTrack: Equatable, Sendable, Identifiable {
         self.isDefault = isDefault
     }
 
+    /// Secondary line in the track picker: `Track 4 · Forced`.
+    public var pickerDetail: String {
+        var parts = ["Track \(number)"]
+        if forced { parts.append("Forced") }
+        if isDefault { parts.append("Default") }
+        let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { parts.append(title) }
+        return parts.joined(separator: " · ")
+    }
+
     /// `eng` / `en`, including `en-US` and the IETF tag.
     public var isEnglish: Bool {
         Self.isEnglishLanguage(language) || Self.isEnglishLanguage(languageIETF)
@@ -78,6 +88,7 @@ public enum MKVCopy {
     public static let needsToolNix = "MKVToolNix is needed to convert this MKV. Download it from \(downloadURL) and try again."
     public static let noPGS = "No PGS subtitles in this MKV."
     public static let skippedTrack = "This MKV was skipped."
+    public static let noTracksSelected = "No tracks selected"
 }
 
 /// Reads `mkvmerge -J` JSON and picks the PGS track to extract.

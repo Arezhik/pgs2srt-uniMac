@@ -16,6 +16,8 @@ final class AppModel: ObservableObject {
     @Published var selectedItemID: UUID?
     @Published private(set) var reviewRevision = 0
     @Published var reviewOpenRequest: UUID?
+    @Published private(set) var batchLine: BatchLine?
+    private let dock = DockProgressController()
     @Published private(set) var reviewWindows: [ReviewWindowState] = []
     private var reviewFiles: [UUID: ReviewFileModel] = [:]
     private var focusedReviewWindowID: UUID?
@@ -34,17 +36,32 @@ final class AppModel: ObservableObject {
         queue.onChange = { [weak self] in
             self?.refresh()
         }
-        queue.onBatchFinished = { outcome in
-            BatchNotifier.announce(outcome)
+        queue.onBatchStarted = { [weak self] in
+            guard let self else { return }
+            self.dock.beginBatch()
+            if self.preferences.batchNotification != .never {
+                BatchNotifier.requestPermissionIfNeeded()
+            }
+        }
+        queue.onBatchFinished = { [weak self] outcome in
+            guard let self else { return }
+            let summary = self.queue.batchLine?.text ?? ""
+            self.dock.finishBatch(failed: outcome.failed, notifications: self.preferences.batchNotification)
+            BatchNotifier.announce(
+                summary: summary,
+                failed: outcome.failed,
+                policy: self.preferences.batchNotification
+            )
+        }
+        queue.onMeter = { [weak self] meter in
+            self?.dock.update(meter)
         }
         queue.confirmReplace = { path in
             await OverwritePrompt.ask(outputPath: path)
         }
-        queue.chooseTrack = { name, tracks, suggested in
-            await TrackPrompt.ask(fileName: name, tracks: tracks, suggestedTrackID: suggested)
-        }
         logLaunch()
         IssueDiagnosticLog.start(version: AppVersion.marketing, build: AppVersion.build)
+        BatchNotifier.install()
         AppModel.shared = self
         let pending = AppDelegate.setDeliver { urls in
             let urls = urls
@@ -131,9 +148,6 @@ final class AppModel: ObservableObject {
     func add(paths: [String]) {
         queue.add(paths: paths)
         refresh()
-        if hasCancellableWork {
-            BatchNotifier.requestPermissionIfNeeded()
-        }
     }
 
     func cancel(id: UUID) {
@@ -158,9 +172,18 @@ final class AppModel: ObservableObject {
 
     func reveal(_ item: ConversionItem) {
         guard case let .done(_, _, path) = item.status else { return }
+        reveal(path: path, sourcePath: item.sourcePath)
+    }
+
+    func reveal(track: ConversionTrack, in item: ConversionItem) {
+        guard case let .done(_, _, path) = track.status else { return }
+        reveal(path: path, sourcePath: item.sourcePath)
+    }
+
+    private func reveal(path: String, sourcePath: String) {
         switch RevealFollowUp.plan(
             outputPath: path,
-            sourcePath: item.sourcePath,
+            sourcePath: sourcePath,
             fileExists: Self.regularFileExists,
             directoryExists: Self.directoryExists
         ) {
@@ -175,7 +198,7 @@ final class AppModel: ObservableObject {
             // An empty root selects the file in the main viewer. A parent folder opens a new one.
             _ = NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
         case let .alert(alert):
-            let source = item.sourcePath
+            let source = sourcePath
             Task { @MainActor in
                 let choice = await RevealPrompt.ask(alert)
                 self.followUp(choice, alert: alert, source: source)
@@ -265,21 +288,60 @@ final class AppModel: ObservableObject {
     private func refresh() {
         items = queue.items
         banners = queue.banners
-        let ids = Set(items.map(\.id))
-        for item in items where reviewFiles[item.id] == nil && queue.hasReview(for: item.id) {
-            reviewFiles[item.id] = ReviewFileModel(itemID: item.id, queue: queue) { [weak self] in
+        batchLine = queue.batchLine
+        let ids = Set(reviewIDs(in: items))
+        for id in ids where reviewFiles[id] == nil && queue.hasReview(for: id) {
+            reviewFiles[id] = ReviewFileModel(itemID: id, queue: queue) { [weak self] in
                 self?.reviewRevision &+= 1
             }
         }
         for id in reviewFiles.keys where !ids.contains(id) {
             reviewFiles[id] = nil
         }
-        if let selectedItemID, !ids.contains(selectedItemID) {
+        if let selectedItemID, !owns(selectedItemID) {
             self.selectedItemID = nil
         }
         if IssueDiagnosticLog.enabled {
             IssueDiagnosticLog.recordModelRefresh(items: items, hasReviewsNeedingSave: hasReviewsNeedingSave)
         }
+    }
+
+    private func reviewIDs(in items: [ConversionItem]) -> [UUID] {
+        items.flatMap { item in
+            if item.tracks.isEmpty { return [item.id] }
+            return [item.id] + item.tracks.map(\.id)
+        }
+    }
+
+    func owns(_ id: UUID) -> Bool {
+        items.contains { $0.id == id || $0.tracks.contains { $0.id == id } }
+    }
+
+    func reviewTitle(for id: UUID) -> String? {
+        queue.reviewTitle(for: id)
+    }
+
+    func reviewTrackNumber(for id: UUID) -> Int? {
+        queue.reviewTrackNumber(for: id)
+    }
+
+    func displayName(for id: UUID) -> String {
+        if let item = items.first(where: { $0.id == id || $0.tracks.contains { $0.id == id } }) {
+            return item.name
+        }
+        return "Subtitles"
+    }
+
+    func setSelectedTracks(id: UUID, trackIDs: [Int]) {
+        queue.setSelectedTracks(id: id, trackIDs: trackIDs)
+    }
+
+    func confirmTrackSelection(id: UUID) {
+        queue.confirmTrackSelection(id: id)
+    }
+
+    func removeTrack(itemID: UUID, trackID: UUID) {
+        queue.removeTrack(itemID: itemID, trackID: trackID)
     }
 
     func reviewFile(for id: UUID) -> ReviewFileModel? {
@@ -288,6 +350,10 @@ final class AppModel: ObservableObject {
 
     func summary(for item: ConversionItem) -> ReviewRowSummary? {
         reviewFiles[item.id]?.summary
+    }
+
+    func summary(forReview id: UUID) -> ReviewRowSummary? {
+        reviewFiles[id]?.summary
     }
 
     func requestReview(itemID: UUID, newWindow: Bool) {
@@ -322,9 +388,7 @@ final class AppModel: ObservableObject {
     }
 
     var finishedReviewCount: Int {
-        items.reduce(0) { partial, item in
-            partial + (reviewFiles[item.id] == nil ? 0 : 1)
-        }
+        reviewFiles.keys.filter { owns($0) }.count
     }
 
     var hasReviewsNeedingSave: Bool {
@@ -332,17 +396,22 @@ final class AppModel: ObservableObject {
     }
 
     func batchEntries() -> [ReviewQueueEntry] {
-        items.compactMap { item in
-            guard let file = reviewFiles[item.id] else { return nil }
-            let document = file.document
-            return ReviewQueueEntry(
-                id: item.id,
-                needsReview: ReviewBatchOrder.needsReview(
-                    problemCount: document.ocrFailedCount + document.lowConfidenceCount,
-                    needsWriting: document.needsWriting
-                )
-            )
+        var entries: [ReviewQueueEntry] = []
+        for item in items {
+            let ids = item.tracks.isEmpty ? [item.id] : item.tracks.map(\.id)
+            for id in ids {
+                guard let file = reviewFiles[id] else { continue }
+                let document = file.document
+                entries.append(ReviewQueueEntry(
+                    id: id,
+                    needsReview: ReviewBatchOrder.needsReview(
+                        problemCount: document.ocrFailedCount + document.lowConfidenceCount,
+                        needsWriting: document.needsWriting
+                    )
+                ))
+            }
         }
+        return entries
     }
 
     func nextReviewFile(after id: UUID) -> UUID? {
@@ -361,7 +430,7 @@ final class AppModel: ObservableObject {
 
     func resolveUnsavedEdits(for itemID: UUID, host: NSWindow?) async -> Bool {
         guard let file = reviewFiles[itemID], file.document.hasUnsavedEdits else { return true }
-        let name = ReviewFormat.title(for: items.first { $0.id == itemID }?.name ?? "Subtitles")
+        let name = queue.reviewTitle(for: itemID) ?? ReviewFormat.title(for: displayName(for: itemID))
         switch await UnsavedPrompt.ask(fileName: name, host: host) {
         case .cancel:
             return false
@@ -389,14 +458,14 @@ final class AppModel: ObservableObject {
 
     func saveAllReviewed() async {
         let host = NSApp.keyWindow
-        for item in items where reviewFiles[item.id]?.document.needsWriting == true {
-            let saved = await saveReview(itemID: item.id, host: host)
+        for entry in batchEntries() where reviewFiles[entry.id]?.document.needsWriting == true {
+            let saved = await saveReview(itemID: entry.id, host: host)
             if !saved { return }
         }
     }
 
     private func writeReview(_ file: ReviewFileModel, to path: String, host: NSWindow?) async -> Bool {
-        let name = ReviewFormat.title(for: items.first { $0.id == file.itemID }?.name ?? "Subtitles")
+        let name = queue.reviewTitle(for: file.itemID) ?? ReviewFormat.title(for: displayName(for: file.itemID))
         DebugLog.shared.record(.lifecycle, "Review save started \(name)")
         if IssueDiagnosticLog.enabled {
             IssueDiagnosticLog.recordSave(phase: "begin", result: nil, dirty: file.document.hasUnsavedEdits)
@@ -785,166 +854,6 @@ enum RevealPrompt {
 
 /// Sheet that lists the PGS tracks in one MKV. Convert uses the selected track. Skip leaves the file alone.
 @MainActor
-enum TrackPrompt {
-    private static var active: Session?
-
-    static func ask(fileName: String, tracks: [PGSSubtitleTrack], suggestedTrackID: Int) async -> MKVTrackChoice {
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<MKVTrackChoice, Never>) in
-                let session = Session(tracks: tracks, suggestedTrackID: suggestedTrackID, continuation: continuation)
-                active = session
-                session.present(fileName: fileName)
-            }
-        } onCancel: {
-            Task { @MainActor in
-                active?.cancel()
-            }
-        }
-    }
-
-    @MainActor
-    private final class Session: NSObject {
-        private let tracks: [PGSSubtitleTrack]
-        private let suggestedTrackID: Int
-        private var continuation: CheckedContinuation<MKVTrackChoice, Never>?
-        private var cancelled = false
-        private var alert: NSAlert?
-        private var host: NSWindow?
-        private var buttons: [NSButton] = []
-
-        init(tracks: [PGSSubtitleTrack], suggestedTrackID: Int, continuation: CheckedContinuation<MKVTrackChoice, Never>) {
-            self.tracks = tracks
-            self.suggestedTrackID = suggestedTrackID
-            self.continuation = continuation
-        }
-
-        func present(fileName: String) {
-            if cancelled {
-                finish(choice: .cancel)
-                return
-            }
-            let alert = NSAlert()
-            alert.alertStyle = .informational
-            alert.messageText = "Choose a subtitle track"
-            alert.informativeText = "\(fileName) has these PGS tracks."
-            alert.addButton(withTitle: "Convert")
-            alert.addButton(withTitle: "Skip")
-            if alert.buttons.count > 1 {
-                alert.buttons[1].keyEquivalent = "\u{1b}"
-            }
-            let accessory = makeAccessory()
-            alert.accessoryView = accessory.view
-            buttons = accessory.buttons
-            self.alert = alert
-            let host = QueueWindow.frontmost() ?? NSApp.keyWindow ?? NSApp.mainWindow
-            self.host = host
-            if let host {
-                alert.beginSheetModal(for: host) { response in
-                    let response = response
-                    Task { @MainActor in
-                        TrackPrompt.active?.finish(response: response)
-                    }
-                }
-            } else {
-                finish(response: alert.runModal())
-            }
-        }
-
-        func cancel() {
-            cancelled = true
-            if let host, let sheet = alert?.window, host.attachedSheet === sheet {
-                host.endSheet(sheet)
-                return
-            }
-            finish(choice: .cancel)
-        }
-
-        func finish(response: NSApplication.ModalResponse) {
-            if cancelled {
-                finish(choice: .cancel)
-                return
-            }
-            switch response {
-            case .alertFirstButtonReturn:
-                finish(choice: .convert(trackID: selectedTrackID()))
-            default:
-                finish(choice: .skip)
-            }
-        }
-
-        private func finish(choice: MKVTrackChoice) {
-            guard let continuation else { return }
-            self.continuation = nil
-            if TrackPrompt.active === self {
-                TrackPrompt.active = nil
-            }
-            continuation.resume(returning: choice)
-        }
-
-        private func selectedTrackID() -> Int {
-            if let button = buttons.first(where: { $0.state == .on }) {
-                return button.tag
-            }
-            return tracks.first { $0.id == suggestedTrackID }?.id ?? tracks.first?.id ?? suggestedTrackID
-        }
-
-        private func makeAccessory() -> (view: NSView, buttons: [NSButton]) {
-            let row: CGFloat = 24
-            let width: CGFloat = 460
-            let contentHeight = max(row, CGFloat(tracks.count) * row)
-            // Flipped so the first track sits at the top, including inside the scroller.
-            let content = TopDownView(frame: NSRect(x: 0, y: 0, width: width, height: contentHeight))
-            var made: [NSButton] = []
-            let suggested = tracks.contains(where: { $0.id == suggestedTrackID }) ? suggestedTrackID : tracks.first?.id
-            var y: CGFloat = 0
-            for track in tracks {
-                let button = NSButton(
-                    radioButtonWithTitle: Self.label(track),
-                    target: self,
-                    action: #selector(pick(_:))
-                )
-                button.frame = NSRect(x: 0, y: y, width: width - 4, height: row)
-                button.tag = track.id
-                button.state = track.id == suggested ? .on : .off
-                button.lineBreakMode = .byTruncatingTail
-                content.addSubview(button)
-                made.append(button)
-                y += row
-            }
-            let visible = min(contentHeight, row * 12)
-            if contentHeight <= visible {
-                return (content, made)
-            }
-            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: visible))
-            scroll.hasVerticalScroller = true
-            scroll.drawsBackground = false
-            scroll.documentView = content
-            return (scroll, made)
-        }
-
-        @objc private func pick(_ sender: NSButton) {}
-
-        private static func label(_ track: PGSSubtitleTrack) -> String {
-            var parts = ["\(track.number)", track.displayLanguage]
-            if !track.name.isEmpty {
-                parts.append(track.name)
-            }
-            var flags: [String] = []
-            if track.forced { flags.append("Forced") }
-            if track.isDefault { flags.append("Default") }
-            if !flags.isEmpty {
-                parts.append(flags.joined(separator: ", "))
-            }
-            return parts.joined(separator: " · ")
-        }
-    }
-}
-
-/// Top-left origin, so the first radio button is the one at the top of the sheet.
-private final class TopDownView: NSView {
-    override var isFlipped: Bool { true }
-}
-
 enum LanguageChoices {
     static let all: [(label: String, tag: String)] = [
         ("English", "en-US"),
@@ -972,8 +881,14 @@ enum LanguageChoices {
     }
 }
 
-/// Asks the first time a batch starts, and stays quiet if the person says no.
+/// Asks the first time a batch starts, and stays quiet when the person says no.
 enum BatchNotifier {
+    static let center = NotificationClickCenter()
+
+    static func install() {
+        UNUserNotificationCenter.current().delegate = center
+    }
+
     static func requestPermissionIfNeeded() {
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             guard settings.authorizationStatus == .notDetermined else { return }
@@ -981,7 +896,17 @@ enum BatchNotifier {
         }
     }
 
-    static func announce(_ outcome: BatchOutcome) {
+    static func announce(summary: String, failed: Int, policy: BatchNotificationPolicy) {
+        switch policy {
+        case .never:
+            return
+        case .onlyOnFailure where failed < 1:
+            return
+        case .whenBatchFinishes, .onlyOnFailure:
+            break
+        }
+        guard !NSApp.isActive else { return }
+        guard !summary.isEmpty else { return }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .authorized, .provisional:
@@ -990,11 +915,30 @@ enum BatchNotifier {
                 return
             }
             let content = UNMutableNotificationContent()
-            content.title = "PGS2SRT"
-            content.body = outcome.notificationBody
+            content.title = "Batch finished"
+            content.body = summary
             content.sound = .default
             let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
             UNUserNotificationCenter.current().add(request) { _ in }
+        }
+    }
+}
+
+/// Clicking the finish notification brings the queue window forward.
+final class NotificationClickCenter: NSObject, UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = NSApp.windows.first(where: { $0.identifier == QueueWindow.marker }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                NSApp.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            }
+            completionHandler()
         }
     }
 }

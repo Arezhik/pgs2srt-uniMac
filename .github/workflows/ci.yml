@@ -19,6 +19,9 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7
 
+      - name: Install zlib headers
+        run: apt-get update && apt-get install -y zlib1g-dev
+
       - name: Test
         run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
 

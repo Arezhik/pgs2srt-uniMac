@@ -16,6 +16,7 @@
 		7B640681DBA88C57E5565C3A /* DebugLogSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA5CB42CD5C41B83824AFB9C /* DebugLogSupport.swift */; };
 		94F4A9837F19A92CFC7B6385 /* VisionOCR in Frameworks */ = {isa = PBXBuildFile; productRef = A365E27F7A9106C982DAB80C /* VisionOCR */; };
 		95A8FDF8E2E8F5FB5DC954CB /* UITestingLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F630CEFE46790BBB409D33F /* UITestingLaunch.swift */; };
+		9C0689497DD08460BC1155E1 /* BatchFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB1C784460C23E4247C5E337 /* BatchFeedback.swift */; };
 		AAFAE1218132559B23634E7B /* PGSCore in Frameworks */ = {isa = PBXBuildFile; productRef = 9E4CAFC4DD918D94C19BB38E /* PGSCore */; };
 		AEA904C862F53F39AF3D16D2 /* PGS2SRTCLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 661BD66372C350983C3B59AF /* PGS2SRTCLI.swift */; };
 		BFCF8EE42578FCC9C3C07557 /* ReviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0B66D179ABB3841EC90534 /* ReviewWindow.swift */; };
@@ -59,6 +60,7 @@
 		D48F84F763A969232E1F173B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		F174FADF49F79DE59DD274B9 /* CueTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueTextEditor.swift; sourceTree = "<group>"; };
 		F47288C196CAEAECDFB73C0E /* pgs2srt */ = {isa = PBXFileReference; includeInIndex = 0; path = pgs2srt; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB1C784460C23E4247C5E337 /* BatchFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchFeedback.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				D48F84F763A969232E1F173B /* AppModel.swift */,
+				FB1C784460C23E4247C5E337 /* BatchFeedback.swift */,
 				088EC1EB401E40E110B61E58 /* ContentView.swift */,
 				F174FADF49F79DE59DD274B9 /* CueTextEditor.swift */,
 				BA5CB42CD5C41B83824AFB9C /* DebugLogSupport.swift */,
@@ -292,6 +295,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FDD0C3889CFC4EC67471D1A9 /* AppModel.swift in Sources */,
+				9C0689497DD08460BC1155E1 /* BatchFeedback.swift in Sources */,
 				5655ECB26B8EC1E623202168 /* ContentView.swift in Sources */,
 				4F3BC5240CF449F299C4DFED /* CueTextEditor.swift in Sources */,
 				7B640681DBA88C57E5565C3A /* DebugLogSupport.swift in Sources */,
@@ -345,7 +349,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -361,7 +365,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.3.0;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.PGS2SRT;
 				PRODUCT_NAME = PGS2SRT;
@@ -486,7 +490,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -502,7 +506,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.3.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.PGS2SRT;
 				PRODUCT_NAME = PGS2SRT;
@@ -580,7 +584,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -588,7 +592,7 @@
 					"@executable_path",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.3.0;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.pgs2srt;
 				PRODUCT_NAME = pgs2srt;
@@ -610,7 +614,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -618,7 +622,7 @@
 					"@executable_path",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.3.0;
 				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = com.pgs2srt.pgs2srt;
 				PRODUCT_NAME = pgs2srt;

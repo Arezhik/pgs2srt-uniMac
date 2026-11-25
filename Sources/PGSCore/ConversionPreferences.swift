@@ -8,6 +8,15 @@ public enum OutputPlacement: Equatable, Sendable {
     case folder(String)
 }
 
+/// When a finished batch may post a notification.
+public enum BatchNotificationPolicy: String, Equatable, Sendable {
+    /// The default. A finished batch notifies unless PGS2SRT is the active app.
+    case whenBatchFinishes
+    /// The same notification, and only when at least one output failed.
+    case onlyOnFailure
+    case never
+}
+
 /// What to do when the destination `.srt` is already on disk.
 public enum ExistingSubtitleAction: String, Equatable, Sendable {
     /// Replace the existing file.
@@ -32,6 +41,8 @@ public struct ConversionPreferences: Equatable, Sendable {
     public var chooseMKVTrack: Bool
     /// `.immediately` writes the `.srt` when conversion finishes. `.afterReview` waits for Save.
     public var saveTiming: SaveTiming
+    /// When the finish notification is allowed. The window summary is always shown.
+    public var batchNotification: BatchNotificationPolicy
 
     public static let defaultLanguage = "en-US"
     public static let defaultConcurrency = 4
@@ -45,7 +56,8 @@ public struct ConversionPreferences: Equatable, Sendable {
         concurrency: Int,
         experimentalItalics: Bool,
         chooseMKVTrack: Bool = false,
-        saveTiming: SaveTiming = .immediately
+        saveTiming: SaveTiming = .immediately,
+        batchNotification: BatchNotificationPolicy = .whenBatchFinishes
     ) {
         self.placement = placement
         self.language = language
@@ -54,6 +66,7 @@ public struct ConversionPreferences: Equatable, Sendable {
         self.experimentalItalics = experimentalItalics
         self.chooseMKVTrack = chooseMKVTrack
         self.saveTiming = saveTiming
+        self.batchNotification = batchNotification
     }
 
     public static let `default` = ConversionPreferences(
@@ -63,7 +76,8 @@ public struct ConversionPreferences: Equatable, Sendable {
         concurrency: defaultConcurrency,
         experimentalItalics: false,
         chooseMKVTrack: false,
-        saveTiming: .immediately
+        saveTiming: .immediately,
+        batchNotification: .whenBatchFinishes
     )
 
     /// Language, concurrency, and folder text the queue can use without further checks.
@@ -89,6 +103,7 @@ public enum ConversionPreferenceKey {
     public static let italics = "experimentalItalics"
     public static let chooseMKVTrack = "chooseMKVTrack"
     public static let saveTiming = "saveTiming"
+    public static let batchNotification = "batchNotification"
 
     public static let placementNextToSource = "nextToSource"
     public static let placementFolder = "folder"
@@ -121,6 +136,7 @@ public enum ConversionPreferenceStore {
         defaults.set(preferences.experimentalItalics, forKey: ConversionPreferenceKey.italics)
         defaults.set(preferences.chooseMKVTrack, forKey: ConversionPreferenceKey.chooseMKVTrack)
         defaults.set(preferences.saveTiming.rawValue, forKey: ConversionPreferenceKey.saveTiming)
+        defaults.set(preferences.batchNotification.rawValue, forKey: ConversionPreferenceKey.batchNotification)
     }
 
     private static func read(from defaults: UserDefaults) -> ConversionPreferences {
@@ -144,6 +160,9 @@ public enum ConversionPreferenceStore {
         let italics = defaults.bool(forKey: ConversionPreferenceKey.italics)
         let chooseMKVTrack = defaults.bool(forKey: ConversionPreferenceKey.chooseMKVTrack)
         let saveTiming = SaveTiming(rawValue: defaults.string(forKey: ConversionPreferenceKey.saveTiming) ?? "") ?? .immediately
+        let batchNotification = BatchNotificationPolicy(
+            rawValue: defaults.string(forKey: ConversionPreferenceKey.batchNotification) ?? ""
+        ) ?? .whenBatchFinishes
         return ConversionPreferences(
             placement: placement,
             language: language,
@@ -151,7 +170,8 @@ public enum ConversionPreferenceStore {
             concurrency: concurrency,
             experimentalItalics: italics,
             chooseMKVTrack: chooseMKVTrack,
-            saveTiming: saveTiming
+            saveTiming: saveTiming,
+            batchNotification: batchNotification
         )
     }
 }
