@@ -1,5 +1,8 @@
 # PGS2SRT
 
+> [!WARNING]
+> Moved to Arezhik/media-forge
+
 PGS2SRT turns Blu-ray picture subtitles into text subtitles. A `.sup` file is a series of pictures (PGS). An `.srt` file is the words, with times, that a video player can show.
 
 The decoder, the SRT writer, and Apple Vision text recognition are in place. On a Mac, open the app and drop a `.sup` file on the window. The same conversion is still available from Terminal.
